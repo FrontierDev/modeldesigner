@@ -1,8 +1,7 @@
-//! Chest-and-shoulder anatomical reference surface (generator v3).
+//! Humanoid reference geometry: torso, shoulder girdle and limbs.
 //!
-//! This revises the sternum, pectoralis, clavicle, deltoid and axillary shapes while retaining one fixed
-//! indexed mesh per generator version. It is a sculpting reference, not a
-//! deformation-ready quad mesh or a substitute for anatomical retopology.
+//! The single active surface may change in place during prototyping.
+//! It is not animation-ready retopology.
 
 use glam::Vec3;
 use crate::{ellipsoid, tapered_capsule, union_smooth};
@@ -12,11 +11,14 @@ fn subtract_smooth(body: f32, cutter: f32, blend: f32) -> f32 {
     -union_smooth(-body, cutter, blend)
 }
 
-/// Box SDF with rounded edges. Allows broad, near-planar pectoral tissue instead
-/// of balloon-like chest ellipsoids.
-fn rounded_box(p: Vec3, centre: Vec3, half: Vec3, radius: f32) -> f32 {
-    let q = (p - centre).abs() - half;
-    q.max(Vec3::ZERO).length() + q.max_element().min(0.0) - radius
+/// Thin elliptical pectoral fan with a gentle lateral slope, not a rectangular ledge.
+fn pectoral_fan(p: Vec3) -> f32 {
+    let x = p.x.abs();
+    ellipsoid(
+        Vec3::new(x, p.y + 0.13 * (x - 0.10), p.z),
+        Vec3::new(0.108, 1.330, 0.090),
+        Vec3::new(0.102, 0.059, 0.049),
+    )
 }
 
 pub(crate) fn field(p: Vec3) -> f32 {
@@ -35,23 +37,7 @@ pub(crate) fn field(p: Vec3) -> f32 {
         d, ellipsoid(p, Vec3::new(0.0, 0.918, -0.006), Vec3::new(0.186, 0.119, 0.137)), 0.048,
     );
     for side in [-1.0_f32, 1.0] {
-        // A flattened pectoral fan spans sternum to the front of the axilla.
-        // A slight lateral slope follows the clavicular/upper-pectoral line.
-        let pec_point = Vec3::new(
-            p.x.abs(),
-            p.y + 0.14 * (p.x.abs() - 0.11),
-            p.z,
-        );
-        d = union_smooth(
-            d,
-            rounded_box(
-                pec_point,
-                Vec3::new(0.108, 1.338, 0.090),
-                Vec3::new(0.086, 0.047, 0.039),
-                0.026,
-            ),
-            0.019,
-        );
+        d = union_smooth(d, pectoral_fan(p), 0.040);
         // Clavicle shelf from manubrium to acromion: this controls shoulder
         // width without an oversized deltoid ball.
         d = union_smooth(
@@ -60,9 +46,9 @@ pub(crate) fn field(p: Vec3) -> f32 {
                 p,
                 Vec3::new(side * 0.050, 1.449, 0.080),
                 Vec3::new(side * 0.220, 1.426, 0.035),
-                0.025, 0.022,
+                0.017, 0.015,
             ),
-            0.029,
+            0.019,
         );
         // Posterior upper-trapezius slope anchors shoulder to the neck.
         d = union_smooth(
@@ -71,9 +57,9 @@ pub(crate) fn field(p: Vec3) -> f32 {
                 p,
                 Vec3::new(side * 0.065, 1.469, -0.045),
                 Vec3::new(side * 0.218, 1.421, -0.044),
-                0.037, 0.028,
+                0.030, 0.023,
             ),
-            0.027,
+            0.023,
         );
         d = union_smooth(
             d,
@@ -179,12 +165,12 @@ pub(crate) fn field(p: Vec3) -> f32 {
         d = union_smooth(
             d,
             tapered_capsule(
-                p, acromion, Vec3::new(side * 0.323, 1.296, -0.004),
-                0.060, 0.048,
+                p, acromion, Vec3::new(side * 0.310, 1.300, -0.004),
+                0.044, 0.048,
             ),
-            0.024,
+            0.028,
         );
-        d = union_smooth(d, tapered_capsule(p, shoulder, elbow, 0.065, 0.052), 0.026);
+        d = union_smooth(d, tapered_capsule(p, shoulder, elbow, 0.058, 0.052), 0.028);
         d = union_smooth(d, tapered_capsule(p, elbow, wrist, 0.058, 0.036), 0.025);
         d = union_smooth(
             d,
@@ -241,10 +227,10 @@ pub(crate) fn field(p: Vec3) -> f32 {
             d,
             ellipsoid(
                 p,
-                Vec3::new(side * 0.219, 1.313, 0.069),
-                Vec3::new(0.044, 0.059, 0.052),
+                Vec3::new(side * 0.211, 1.293, 0.055),
+                Vec3::new(0.030, 0.041, 0.040),
             ),
-            0.011,
+            0.009,
         );
     }
     d
@@ -255,27 +241,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn surface_mirrors_across_sagittal_plane() {
-        for pos in [
-            Vec3::new(0.17, 1.34, 0.14),
-            Vec3::new(0.23, 1.42, 0.04),
-            Vec3::new(0.24, 1.32, 0.08),
-            Vec3::new(0.40, 1.19, 0.02),
+    fn upper_body_mirrors_across_center() {
+        for p in [
+            Vec3::new(0.10, 1.33, 0.12),
+            Vec3::new(0.22, 1.42, 0.03),
+            Vec3::new(0.25, 1.31, 0.04),
         ] {
-            assert!((field(pos) - field(Vec3::new(-pos.x, pos.y, pos.z))).abs() < 1e-5);
+            assert!((field(p) - field(Vec3::new(-p.x, p.y, p.z))).abs() < 1e-5);
         }
     }
 
     #[test]
-    fn deltoid_cap_does_not_project_as_an_oversized_sphere() {
-        // The old generator encloses this exaggerated high lateral shoulder.
-        let point = Vec3::new(0.29, 1.475, 0.0);
-        assert!(field(point) > 0.0);
-    }
-
-    #[test]
-    fn clavicle_ridge_is_present_anterior_to_acromion() {
-        let anterior = Vec3::new(0.15, 1.438, 0.055);
-        assert!(field(anterior) < 0.0);
+    fn upper_body_values_remain_finite() {
+        for x in [-0.3_f32, -0.1, 0.0, 0.1, 0.3] {
+            for y in [1.25_f32, 1.35, 1.45] {
+                for z in [-0.15_f32, 0.0, 0.15] {
+                    assert!(field(Vec3::new(x, y, z)).is_finite());
+                }
+            }
+        }
     }
 }

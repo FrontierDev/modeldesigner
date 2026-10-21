@@ -160,7 +160,6 @@ pub fn build_schema_json() -> Result<String, String> {
     }).collect();
     serde_json::to_string_pretty(&serde_json::json!({
         "schema_version": crate::SCHEMA_VERSION,
-        "generator_version": crate::GENERATOR_VERSION,
         "model_type": "humanoid",
         "controls": controls
     })).map_err(|error| error.to_string())

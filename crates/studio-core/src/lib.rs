@@ -9,22 +9,17 @@ use std::sync::OnceLock;
 
 pub mod controls;
 pub mod morphology;
-mod humanoid_v2;
-mod humanoid_v3;
+mod humanoid;
 pub use controls::{BuildControl, BuildParameter, BuildSection, BUILD_CONTROLS};
 pub use morphology::Morphology;
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const LEGACY_GENERATOR_VERSION: u32 = 1;
-pub const V2_GENERATOR_VERSION: u32 = 2;
-pub const GENERATOR_VERSION: u32 = 3;
 pub const REFERENCE_HEIGHT: f32 = 1.75;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipe {
     pub schema_version: u32,
-    pub generator_version: u32,
     pub name: String,
     /// Total standing height, in metres.
     pub height: f32,
@@ -47,7 +42,6 @@ impl Default for Recipe {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
-            generator_version: GENERATOR_VERSION,
             name: "Humanoid 01".into(),
             height: REFERENCE_HEIGHT,
             shoulder_width: 0.46,
@@ -63,9 +57,8 @@ impl Default for Recipe {
 
 impl Recipe {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != SCHEMA_VERSION
-            || ![LEGACY_GENERATOR_VERSION, V2_GENERATOR_VERSION, GENERATOR_VERSION].contains(&self.generator_version) {
-            return Err("Unsupported recipe schema or generator version".into());
+        if self.schema_version != SCHEMA_VERSION {
+            return Err("Unsupported recipe schema".into());
         }
         if self.name.trim().is_empty() || self.name.len() > 120 {
             return Err("Name must contain 1–120 characters".into());
@@ -109,7 +102,6 @@ pub struct VertexInfluence {
 
 #[derive(Clone, Debug)]
 pub struct Model {
-    pub generator_version: u32,
     pub vertices: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub triangles: Vec<[u32; 3]>,
@@ -120,7 +112,6 @@ pub struct Model {
 #[derive(Serialize)]
 struct RigExport<'a> {
     schema_version: u32,
-    generator_version: u32,
     vertex_count: usize,
     joint_count: usize,
     joints: &'a [Joint],
@@ -143,7 +134,6 @@ impl Model {
     pub fn to_rig_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(&RigExport {
             schema_version: SCHEMA_VERSION,
-            generator_version: self.generator_version,
             vertex_count: self.vertices.len(),
             joint_count: self.joints.len(),
             joints: &self.joints,
@@ -159,19 +149,12 @@ struct Canonical {
     influences: Vec<VertexInfluence>,
 }
 
-static CANONICAL_V1: OnceLock<Canonical> = OnceLock::new();
-static CANONICAL_V2: OnceLock<Canonical> = OnceLock::new();
-static CANONICAL_V3: OnceLock<Canonical> = OnceLock::new();
+static CANONICAL: OnceLock<Canonical> = OnceLock::new();
 
 /// Every recipe uses the identical canonical mesh and vertex indexing.
 pub fn generate(recipe: &Recipe) -> Result<Model, String> {
     recipe.validate()?;
-    let reference = match recipe.generator_version {
-        LEGACY_GENERATOR_VERSION => CANONICAL_V1.get_or_init(build_reference_v1),
-        V2_GENERATOR_VERSION => CANONICAL_V2.get_or_init(build_reference_v2),
-        GENERATOR_VERSION => CANONICAL_V3.get_or_init(build_reference_v3),
-        _ => return Err("Unsupported humanoid generator version".into()),
-    };
+    let reference = CANONICAL.get_or_init(build_reference);
     let joints = skeleton(recipe);
     let vertices: Vec<[f32; 3]> = reference
         .vertices
@@ -180,7 +163,6 @@ pub fn generate(recipe: &Recipe) -> Result<Model, String> {
         .collect();
     let normals = vertex_normals(&vertices, &reference.triangles);
     Ok(Model {
-        generator_version: recipe.generator_version,
         vertices,
         normals,
         triangles: reference.triangles.clone(),
@@ -224,39 +206,8 @@ fn joint_positions(height: f32, shoulder_width: f32, arm: f32, leg: f32) -> [Vec
     ]
 }
 
+/// Rest skeleton: the clavicles connect the chest to the upper arm joints.
 pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
-    if recipe.generator_version == GENERATOR_VERSION {
-        return skeleton_v3(recipe);
-    }
-    const NAMES: [&str; 19] = [
-        "hips", "spine", "chest", "neck", "head",
-        "left_shoulder", "left_elbow", "left_wrist", "left_hand",
-        "right_shoulder", "right_elbow", "right_wrist", "right_hand",
-        "left_hip", "left_knee", "left_ankle", "right_hip", "right_knee", "right_ankle",
-    ];
-    const PARENTS: [Option<usize>; 19] = [
-        None, Some(0), Some(1), Some(2), Some(3),
-        Some(2), Some(5), Some(6), Some(7),
-        Some(2), Some(9), Some(10), Some(11),
-        Some(0), Some(13), Some(14), Some(0), Some(16), Some(17),
-    ];
-    let mut coords = joint_positions(recipe.height, recipe.shoulder_width, recipe.arm_length, recipe.leg_length);
-    let neutral = joint_positions(REFERENCE_HEIGHT, 0.46, 1.0, 1.0);
-    for (position, landmark) in coords.iter_mut().zip(neutral) {
-        *position += morphology::structural_offset(
-            landmark, &recipe.morphology, recipe.height / REFERENCE_HEIGHT
-        );
-    }
-    NAMES.iter().enumerate().map(|(i, name)| Joint {
-        name: *name,
-        parent: PARENTS[i],
-        position: coords[i].to_array(),
-    }).collect()
-}
-
-/// Shoulder girdle v3: sternoclavicular chest -> clavicle -> humeral head.
-/// This 21-joint hierarchy only applies to new v3 recipes; v1/v2 keep 19 joints.
-fn skeleton_v3(recipe: &Recipe) -> Vec<Joint> {
     const NAMES: [&str; 21] = [
         "hips", "spine", "chest", "neck", "head",
         "left_clavicle", "left_shoulder", "left_elbow", "left_wrist", "left_hand",
@@ -270,8 +221,7 @@ fn skeleton_v3(recipe: &Recipe) -> Vec<Joint> {
         Some(2), Some(10), Some(11), Some(12), Some(13),
         Some(0), Some(15), Some(16), Some(0), Some(18), Some(19),
     ];
-    // Source indices map onto the original 19-body landmark positions.
-    // usize::MAX identifies a clavicle endpoint introduced by generator v3.
+    // Map shared landmarks into the clavicle-enabled 21-joint hierarchy.
     const SOURCE: [usize; 21] = [
         0, 1, 2, 3, 4, usize::MAX, 5, 6, 7, 8,
         usize::MAX, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
@@ -358,30 +308,6 @@ fn union_smooth(a: f32, b: f32, k: f32) -> f32 {
     b + (a - b) * t - k * t * (1.0 - t)
 }
 
-fn reference_field(p: Vec3) -> f32 {
-    let mut field = ellipsoid(p, Vec3::new(0.0, 1.14, 0.0), Vec3::new(0.206, 0.335, 0.136));
-    field = union_smooth(field, ellipsoid(p, Vec3::new(0.0, 1.30, 0.0), Vec3::new(0.243, 0.183, 0.159)), 0.075);
-    field = union_smooth(field, ellipsoid(p, Vec3::new(0.0, 0.94, 0.0), Vec3::new(0.209, 0.131, 0.151)), 0.065);
-    field = union_smooth(field, tapered_capsule(p, Vec3::new(0.0, 1.40, 0.0), Vec3::new(0.0, 1.56, 0.0), 0.075, 0.066), 0.06);
-    field = union_smooth(field, ellipsoid(p, Vec3::new(0.0, 1.635, 0.0), Vec3::new(0.105, 0.133, 0.105)), 0.033);
-    for sign in [-1.0_f32, 1.0] {
-        let shoulder = Vec3::new(sign * 0.23, 1.42, 0.0);
-        let elbow = Vec3::new(sign * 0.41, 1.19, 0.0);
-        let wrist = Vec3::new(sign * 0.58, 1.04, 0.0);
-        let hand = Vec3::new(sign * 0.65, 0.98, 0.0);
-        field = union_smooth(field, tapered_capsule(p, shoulder, elbow, 0.106, 0.074), 0.073);
-        field = union_smooth(field, tapered_capsule(p, elbow, wrist, 0.074, 0.047), 0.030);
-        field = union_smooth(field, tapered_capsule(p, wrist, hand, 0.050, 0.039), 0.017);
-        let hip = Vec3::new(sign * 0.12, 0.90, 0.0);
-        let knee = Vec3::new(sign * 0.13, 0.47, 0.0);
-        let ankle = Vec3::new(sign * 0.13, 0.09, 0.0);
-        field = union_smooth(field, tapered_capsule(p, hip, knee, 0.111, 0.072), 0.06);
-        field = union_smooth(field, tapered_capsule(p, knee, ankle, 0.074, 0.047), 0.025);
-        field = union_smooth(field, ellipsoid(p, Vec3::new(sign * 0.13, 0.075, 0.075), Vec3::new(0.073, 0.064, 0.155)), 0.034);
-    }
-    field
-}
-
 fn closest_influences(point: Vec3, joints: &[Joint]) -> VertexInfluence {
     let mut candidates = Vec::with_capacity(joints.len());
     for (i, joint) in joints.iter().enumerate() {
@@ -405,34 +331,12 @@ fn closest_influences(point: Vec3, joints: &[Joint]) -> VertexInfluence {
     VertexInfluence { joint_indices: indices, weights }
 }
 
-/// The legacy grid and field remain byte-for-byte compatible with generator v1.
-fn build_reference_v1() -> Canonical {
-    build_reference(
-        reference_field, 44, 82, 30,
-        Vec3::new(-0.78, -0.06, -0.27),
-        Vec3::new(1.56, 1.90, 0.55),
-        LEGACY_GENERATOR_VERSION,
-    )
-}
-
-/// A finer grid resolves brows, nose, ears, palms and ankle transitions.
-fn build_reference_v2() -> Canonical {
-    build_reference(
-        humanoid_v2::field, 60, 106, 44,
+/// Current editable humanoid surface (no older generator implementations).
+fn build_reference() -> Canonical {
+    mesh_reference(
+        humanoid::field, 42, 76, 28,
         Vec3::new(-0.82, -0.065, -0.34),
         Vec3::new(1.64, 1.92, 0.73),
-        V2_GENERATOR_VERSION,
-    )
-}
-
-/// Deliberately reduced sampling budget for v3; anatomy must come from shape,
-/// not tens of thousands of wasteful uniform-field triangles.
-fn build_reference_v3() -> Canonical {
-    build_reference(
-        humanoid_v3::field, 42, 76, 28,
-        Vec3::new(-0.82, -0.065, -0.34),
-        Vec3::new(1.64, 1.92, 0.73),
-        GENERATOR_VERSION,
     )
 }
 
@@ -455,14 +359,13 @@ fn vertex_normals(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<[f32; 3]
     normals.into_iter().map(|normal| normal.normalize_or_zero().to_array()).collect()
 }
 
-fn build_reference(
+fn mesh_reference(
     field: fn(Vec3) -> f32,
     nx: usize,
     ny: usize,
     nz: usize,
     start: Vec3,
     size: Vec3,
-    generator_version: u32,
 ) -> Canonical {
     let index = |x: usize, y: usize, z: usize| (z * ny + y) * nx + x;
     let mut coords = Vec::with_capacity(nx * ny * nz);
@@ -522,10 +425,7 @@ fn build_reference(
             }
         }
     } } }
-    let reference_joints = skeleton(&Recipe {
-        generator_version,
-        ..Recipe::default()
-    });
+    let reference_joints = skeleton(&Recipe::default());
     let influences = vertices.iter().map(|p| closest_influences(*p, &reference_joints)).collect();
     Canonical { vertices, triangles, influences }
 }
@@ -668,58 +568,11 @@ mod tests {
     }
 
     #[test]
-    fn versioned_anatomy_preserves_legacy_meshes() {
-        let mut old = Recipe::default();
-        old.generator_version = LEGACY_GENERATOR_VERSION;
-        let legacy = generate(&old).unwrap();
-        assert_eq!(legacy.vertices.len(), 17_202);
-        assert_eq!(legacy.triangles.len(), 34_400);
-        let old_rig: serde_json::Value = serde_json::from_str(&legacy.to_rig_json().unwrap()).unwrap();
-        assert_eq!(old_rig["generator_version"].as_u64(), Some(1));
-        assert_eq!(Recipe::from_json(&old.to_json().unwrap()).unwrap(), old);
-        let mut older = Recipe::default();
-        older.generator_version = V2_GENERATOR_VERSION;
-        let v2 = generate(&older).unwrap();
-        assert_eq!(v2.joints.len(), 19);
-        assert_eq!(v2.vertices.len(), 25_062);
-        assert_eq!(v2.triangles.len(), 50_120);
-        let older_rig: serde_json::Value = serde_json::from_str(&v2.to_rig_json().unwrap()).unwrap();
-        assert_eq!(older_rig["generator_version"].as_u64(), Some(2));
-        let current = generate(&Recipe::default()).unwrap();
-        let current_rig: serde_json::Value = serde_json::from_str(&current.to_rig_json().unwrap()).unwrap();
-        assert_eq!(current_rig["generator_version"].as_u64(), Some(3));
-        assert_eq!(current.joints.len(), 21);
-        assert!(current.triangles.len() < 26_000, "v3 exceeds triangle budget: {}", current.triangles.len());
-        assert_ne!(legacy.triangles.len(), current.triangles.len());
-        assert_eq!(current.normals.len(), current.vertices.len());
-        assert!(current.normals.iter().flatten().all(|c| c.is_finite()));
-    }
-
-    #[test]
-    fn clavicles_are_parented_between_chest_and_upper_arms() {
-        let joints = skeleton(&Recipe::default());
-        assert_eq!(joints.len(), 21);
-        let l = joints.iter().position(|j| j.name == "left_clavicle").unwrap();
-        let r = joints.iter().position(|j| j.name == "right_clavicle").unwrap();
-        let chest = joints.iter().position(|j| j.name == "chest").unwrap();
-        let ls = joints.iter().position(|j| j.name == "left_shoulder").unwrap();
-        let rs = joints.iter().position(|j| j.name == "right_shoulder").unwrap();
-        assert_eq!(joints[l].parent, Some(chest));
-        assert_eq!(joints[r].parent, Some(chest));
-        assert_eq!(joints[ls].parent, Some(l));
-        assert_eq!(joints[rs].parent, Some(r));
-        assert!(joints.iter().enumerate().all(|(i, j)| j.parent.is_none_or(|p| p < i)));
-    }
-
-    #[test]
-    fn clavicles_track_shoulder_width() {
-        let normal = skeleton(&Recipe::default());
-        let wide = skeleton(&Recipe {
-            shoulder_width: 0.60,
-            ..Recipe::default()
-        });
-        assert!(wide[5].position[0].abs() > normal[5].position[0].abs());
-        assert!(wide[10].position[0].abs() > normal[10].position[0].abs());
+    fn neutral_humanoid_has_clavicles_and_reasonable_triangle_budget() {
+        let model = generate(&Recipe::default()).unwrap();
+        assert_eq!(model.joints.len(), 21);
+        assert!(model.triangles.len() < 26_000);
+        assert_eq!(model.vertices.len(), model.normals.len());
     }
 
     #[test]
@@ -794,7 +647,7 @@ mod tests {
         invalid.arm_length = f32::NAN;
         assert!(invalid.validate().is_err());
         invalid = recipe.clone();
-        invalid.generator_version = 3;
+        invalid.schema_version = 3;
         assert!(invalid.validate().is_err());
         invalid = recipe.clone();
         invalid.body_mass = 1.5;
