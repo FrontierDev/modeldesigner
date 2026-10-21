@@ -20,6 +20,16 @@ The upper-body generator `study.rs` now authors **neutral geometry only**, toget
 
 The neutral recipe and mesh are unchanged when dragging pose sliders. The preview mesh is evaluated from the original bind pose and recomputed normals every time. Neutral OBJ export and rig metadata include reference influences and per-joint inverse bind matrices.
 
+## Superior shoulder and humeral-head position
+
+The lower socket fold correction worked, but the remaining upper seam showed an abrupt surface-normal change at the torso/arm patch. The underlying humeral-head pivot also sat too far laterally (±0.263 m versus the approximately ±0.225 m lateral upper torso contour at reference dimensions).
+
+The pivot is now at **±0.240 m** in the neutral study, bringing it inward by **23 mm** while retaining the original upper-arm direction and independent left/right movement.
+
+For the upper crease, the mesh engine now exposes deterministic, topology-preserving, masked quad-adjacency smoothing. Four local passes at strength 0.20 and 16 mm displacement limit improve neutral surface continuity in a tight upper-shoulder band. A second bounded 10 mm pose-space pass runs after skinning and shoulder volume correction, using the *neutral* mask. The lower axillary region and sternum remain outside this correction.
+
+The numerical reference check showed the worst neutral upper-shoulder face-normal agreement improving from ~0.35 to ~0.69 (1.0 being perfectly aligned). Independent-arm raised/reaching checks remained finite and free of degenerate triangles. Extreme combined poses still require visual inspection and further animation-specific corrective work.
+
 ## Socket fold correction
 
 Analysis of the original neutral mesh found that the first elliptical shoulder loop crossed *behind* five torso-hole vertices per side, with up to 38 mm of inward lateral displacement. Face normals across some seam edges were nearly opposite even in the neutral pose. This was a **construction error**, not something that improved skin weighting or volume correction could repair.

@@ -25,7 +25,14 @@ The preview now provides **independent left/right shoulder Raise (0–70°) and 
 
 The original 16-vertex arm-hole boundary was joined to an elliptical transition loop that could actually extend **inside** the chest cavity. This created inverted/overlapping patches and a visible armpit crease in neutral and raised-arm poses. The study now softly rounds the socket rim and enforces a lateral advance of 28, 16 and 8 mm (at reference height) across the first three connected rings. The mesh vertex/face counts are unchanged.
 
-The neutral socket has a regression test that measures adjacent face-normal agreement, as well as checks enforcing outward ring progression. An independent numerical reproduction found the worst neutral shoulder-edge normal dot product improved from approximately **−0.95 to −0.20**; the neutral and sampled extreme poses retained finite nondegenerate triangles. **These figures are geometric diagnostics, not a visual acceptance test.**
+The neutral socket has a regression test that measures adjacent face-normal agreement, as well as checks enforcing outward ring progression.
+
+### Superior shoulder revision
+
+The remaining sharp upper crease was a **surface continuity** problem at the upper edge of the chest-to-arm patch. The current neutral model uses a controlled local quad-mesh fairing pass (four passes at 0.20 strength, maximum 16 mm displacement at reference height). A smaller fairing pass runs **after skinning for preview poses**, using the same neutral-space mask; it does not alter the exported neutral geometry or the lower armpit. The humeral-head joint is now seated approximately **23 mm more medially**, from 0.263 m to 0.240 m lateral of centre at default dimensions. Face counts and topology remain unchanged.
+
+The independent neutral numerical reproduction measured the worst upper-shoulder adjacent face-normal dot product improving from about **0.35 to 0.69**. Sampled left-only and right-only raised/forward poses improved with the pose-space pass. This does not yet establish production-quality skinning or guarantee a crease-free appearance under every combination of poses.
+ An independent numerical reproduction found the worst neutral shoulder-edge normal dot product improved from approximately **−0.95 to −0.20**; the neutral and sampled extreme poses retained finite nondegenerate triangles. **These figures are geometric diagnostics, not a visual acceptance test.**
 
 **These are skeletal deformation tests, not a fully animation-ready character rig.** Recipe and OBJ/rig exports remain neutral, with inverse bind matrices and reference weights included in the rig metadata.
 
