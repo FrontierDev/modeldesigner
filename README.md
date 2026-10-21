@@ -21,6 +21,12 @@ The updated shoulder connection adds intermediate **transition and deltoid-inser
 
 The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Clavicles now pivot from their medial/sternal ends. Shoulder attachment weights vary continuously around the axilla and across nearby torso columns, while the deltoid correction preserves transverse radius relative to the posed upper-arm axis. The sternum and opposite arm remain stationary when only one side moves.
 
+### Shoulder socket topology correction
+
+The original 16-vertex arm-hole boundary was joined to an elliptical transition loop that could actually extend **inside** the chest cavity. This created inverted/overlapping patches and a visible armpit crease in neutral and raised-arm poses. The study now softly rounds the socket rim and enforces a lateral advance of 28, 16 and 8 mm (at reference height) across the first three connected rings. The mesh vertex/face counts are unchanged.
+
+The neutral socket has a regression test that measures adjacent face-normal agreement, as well as checks enforcing outward ring progression. An independent numerical reproduction found the worst neutral shoulder-edge normal dot product improved from approximately **−0.95 to −0.20**; the neutral and sampled extreme poses retained finite nondegenerate triangles. **These figures are geometric diagnostics, not a visual acceptance test.**
+
 **These are skeletal deformation tests, not a fully animation-ready character rig.** Recipe and OBJ/rig exports remain neutral, with inverse bind matrices and reference weights included in the rig metadata.
 
 The mesh primarily contains quads and exports quad faces in OBJ. The preview triangulates those faces for drawing; end caps are triangles. A built-in check requires finite, nondegenerate, closed, consistently oriented geometry.

@@ -20,6 +20,14 @@ The upper-body generator `study.rs` now authors **neutral geometry only**, toget
 
 The neutral recipe and mesh are unchanged when dragging pose sliders. The preview mesh is evaluated from the original bind pose and recomputed normals every time. Neutral OBJ export and rig metadata include reference influences and per-joint inverse bind matrices.
 
+## Socket fold correction
+
+Analysis of the original neutral mesh found that the first elliptical shoulder loop crossed *behind* five torso-hole vertices per side, with up to 38 mm of inward lateral displacement. Face normals across some seam edges were nearly opposite even in the neutral pose. This was a **construction error**, not something that improved skin weighting or volume correction could repair.
+
+The torso socket's existing 16 rim vertices are rounded in their vertical/depth coordinates without introducing duplicates or changing connectivity. The first three sewn shoulder loops are constrained to advance laterally by at least 28, 16 and 8 mm at reference height. Corrective offsets still operate only on the skinned shoulder loops, after generation.
+
+Regression tests check outward progression and adjacent neutral face normals. An independent Python reproduction of the actual revised generation order measured a worst neutral shoulder-edge normal dot product near −0.20 (previously approximately −0.95), with nondegenerate triangles in neutral, independent-arm and combined maximum test poses. These checks do **not** prove that the updated shoulder is visually or anatomically finished.
+
 ## Validation
 
 Tests cover identity bind transforms, hierarchical child rotation, stable weights and indices, independent arm motion, localized moving torso seams with a stationary sternum/opposite side, neutral rig export and validation of pose ranges. An independent numerical reproduction checked the neutral, left-only, right-only and combined 70° raise/55° forward configurations (580 vertices, 512 quads, 1,120 triangles), finding no degenerate triangles. At 60° raise/35° forward the active upper chest seam moved around 9 mm while the central chest remained stationary; real Rust unit tests and application rendering remain to be run locally.

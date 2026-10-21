@@ -18,3 +18,5 @@
 - Apply bounded corrective deformations only after skeletal skinning; calculate preview normals from the deformed surface. Exports always use neutral bind-pose data.
 - Place clavicle pivots at the medial attachment near the sternum; maintain the shoulder as their child and distribute elevation through both joints.
 - Avoid abrupt uniform ring weights across the deltoid. Blend weights angularly around the upper-arm ring and smoothly across nearby torso sections. Correct transverse shoulder volume relative to the posed bone frame.
+- Shoulder socket loops must never move inward through their corresponding torso-hole boundary vertices. The first three transition rings enforce outward progression; keep regression tests for lateral ordering and adjacent-face creasing.
+- Do not attempt to repair a geometric fold using skin weights alone. Investigate neutral patch construction and face orientation before adding deformation correctives.
