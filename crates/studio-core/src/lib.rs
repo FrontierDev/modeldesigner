@@ -206,7 +206,9 @@ pub fn generate_posed(recipe: &Recipe, pose: PreviewPose) -> Result<Model, Strin
             &study.surface.vertices, &study.weights, &transforms.skin
         )?;
         study::preserve_shoulder_volume(&study, &mut positions, &transforms.skin, pose)?;
+        let neutral_vertices = study.surface.vertices.clone();
         study.surface.vertices = positions;
+        study::fair_posed_upper_shoulder(&mut study.surface, &neutral_vertices, recipe)?;
         study.surface.validate_closed()?;
     }
     let normals = study.surface.normals();

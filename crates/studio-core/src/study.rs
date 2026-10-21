@@ -331,11 +331,10 @@ fn advance_socket_loop(
 /// valid connectivity but a visible C0 crease across the superior seam.
 /// Resolve the angular normal discontinuity in a narrow upper-shoulder band;
 /// do not touch the sternum, lower axilla, or the rest of the torso.
-fn fair_upper_shoulder(mesh: &mut MeshBuilder, m: Measurements) -> Result<(), String> {
-    let mut weights = Vec::with_capacity(mesh.vertices.len());
-    for point in &mesh.vertices {
-        // Work in normalized anatomical coordinates so morphology/height
-        // changes preserve the smoothing region.
+/// Stable anatomical upper-socket mask evaluated against reference positions.
+fn upper_shoulder_mask(vertices: &[Vec3], m: Measurements) -> Vec<f32> {
+    let mut weights = Vec::with_capacity(vertices.len());
+    for point in vertices {
         let width_scale = m.shoulder_width * m.chest_width;
         let lateral = point.x.abs() / (m.height * width_scale);
         let y = 0.78 + (point.y / m.height - 0.78) / m.torso_length;
@@ -345,9 +344,25 @@ fn fair_upper_shoulder(mesh: &mut MeshBuilder, m: Measurements) -> Result<(), St
             * ((1.52 - y) / 0.060).clamp(0.0, 1.0);
         weights.push(outer * upper);
     }
-    // The displacement cap prevents repeated smoothing from shrinking the
-    // shoulder or changing its authored outer contour substantially.
-    mesh.relax_masked(&weights, 4, 0.20, 0.016 * m.height)
+    weights
+}
+
+fn fair_upper_shoulder(mesh: &mut MeshBuilder, m: Measurements) -> Result<(), String> {
+    let mask = upper_shoulder_mask(&mesh.vertices, m);
+    mesh.relax_masked(&mask, 4, 0.20, 0.016 * m.height)
+}
+
+/// Resolve shoulder creasing after bone deformation without touching the
+/// neutral reference or the lower axillary transition.
+pub fn fair_posed_upper_shoulder(
+    surface: &mut SurfaceMesh, neutral: &[Vec3], recipe: &Recipe
+) -> Result<(), String> {
+    if neutral.len() != surface.vertices.len() {
+        return Err("Posed and neutral vertex counts differ".into());
+    }
+    let m = Measurements::from(recipe);
+    let mask = upper_shoulder_mask(neutral, m);
+    surface.relax_masked(&mask, 4, 0.20, 0.010 * m.height)
 }
 
 fn arm_ring(

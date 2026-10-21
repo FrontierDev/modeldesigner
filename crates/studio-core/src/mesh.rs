@@ -22,6 +22,59 @@ pub struct SurfaceMesh {
     pub caps: Vec<[u32; 3]>,
 }
 
+/// Deterministic masked fairing shared by neutral geometry and posed meshes.
+fn relax_masked_vertices(
+    vertices: &mut [Vec3],
+    quads: &[[u32; 4]],
+    mask: &[f32],
+    iterations: usize,
+    rate: f32,
+    max_displacement: f32,
+) -> Result<(), String> {
+        if mask.len() != vertices.len()
+            || !rate.is_finite() || !(0.0..=1.0).contains(&rate)
+            || !max_displacement.is_finite() || max_displacement <= 0.0
+            || mask.iter().any(|w| !w.is_finite() || !(0.0..=1.0).contains(w))
+        {
+            return Err("Invalid surface-fairing weights or parameters".into());
+        }
+
+        let mut neighbours = vec![Vec::<usize>::new(); vertices.len()];
+        for &[a, b, c, d] in &quads {
+            for (u, v) in [(a, b), (b, c), (c, d), (d, a)] {
+                let u = u as usize;
+                let v = v as usize;
+                if u >= neighbours.len() || v >= neighbours.len() {
+                    return Err("Surface fairing encountered an invalid quad index".into());
+                }
+                neighbours[u].push(v);
+                neighbours[v].push(u);
+            }
+        }
+        for ring in &mut neighbours {
+            ring.sort_unstable();
+            ring.dedup();
+        }
+
+        let bind = vertices.to_vec();
+        for _ in 0..iterations {
+            let before = vertices.to_vec();
+            let mut next = before.clone();
+            for (i, adjacency) in neighbours.iter().enumerate() {
+                if mask[i] == 0.0 || adjacency.is_empty() {
+                    continue;
+                }
+                let average = adjacency.iter()
+                    .map(|&j| before[j]).sum::<Vec3>() / adjacency.len() as f32;
+                let proposed = before[i] + (average - before[i]) * (rate * mask[i]);
+                let offset = proposed - bind[i];
+                next[i] = bind[i] + offset.clamp_length_max(max_displacement);
+            }
+            vertices.copy_from_slice(&next);
+        }
+        Ok(())
+}
+
 impl MeshBuilder {
     pub fn vertex(&mut self, position: Vec3) -> u32 {
         let id = self.vertices.len() as u32;
@@ -56,61 +109,11 @@ impl MeshBuilder {
         Ok(())
     }
 
-    /// Local constrained fairing of an authored quad surface. Smooth only
-    /// vertices selected by an anatomical region mask, in parallel from a
-    /// snapshot of the prior pass. Connectivity and vertex order never change.
-    ///
-    /// Faces are used for adjacency only: triangle rendering diagonals are
-    /// intentionally excluded. All iterations are deterministic.
+    /// Local smoothing without modifying authored vertex indices or quads.
     pub fn relax_masked(
-        &mut self,
-        mask: &[f32],
-        iterations: usize,
-        rate: f32,
-        max_displacement: f32,
+        &mut self, mask: &[f32], iterations: usize, rate: f32, max_displacement: f32
     ) -> Result<(), String> {
-        if mask.len() != self.vertices.len()
-            || !rate.is_finite() || !(0.0..=1.0).contains(&rate)
-            || !max_displacement.is_finite() || max_displacement <= 0.0
-            || mask.iter().any(|w| !w.is_finite() || !(0.0..=1.0).contains(w))
-        {
-            return Err("Invalid surface-fairing weights or parameters".into());
-        }
-
-        let mut neighbours = vec![Vec::<usize>::new(); self.vertices.len()];
-        for &[a, b, c, d] in &self.quads {
-            for (u, v) in [(a, b), (b, c), (c, d), (d, a)] {
-                let u = u as usize;
-                let v = v as usize;
-                if u >= neighbours.len() || v >= neighbours.len() {
-                    return Err("Surface fairing encountered an invalid quad index".into());
-                }
-                neighbours[u].push(v);
-                neighbours[v].push(u);
-            }
-        }
-        for ring in &mut neighbours {
-            ring.sort_unstable();
-            ring.dedup();
-        }
-
-        let bind = self.vertices.clone();
-        for _ in 0..iterations {
-            let before = self.vertices.clone();
-            let mut next = before.clone();
-            for (i, adjacency) in neighbours.iter().enumerate() {
-                if mask[i] == 0.0 || adjacency.is_empty() {
-                    continue;
-                }
-                let average = adjacency.iter()
-                    .map(|&j| before[j]).sum::<Vec3>() / adjacency.len() as f32;
-                let proposed = before[i] + (average - before[i]) * (rate * mask[i]);
-                let offset = proposed - bind[i];
-                next[i] = bind[i] + offset.clamp_length_max(max_displacement);
-            }
-            self.vertices = next;
-        }
-        Ok(())
+        relax_masked_vertices(&mut self.vertices, &self.quads, mask, iterations, rate, max_displacement)
     }
 
     /// A triangle-fan closure. Used only for study boundary ends, not joints.
@@ -143,6 +146,13 @@ impl MeshBuilder {
 }
 
 impl SurfaceMesh {
+    /// Preserve topology while smoothing an already built / posed surface.
+    pub fn relax_masked(
+        &mut self, mask: &[f32], iterations: usize, rate: f32, max_displacement: f32
+    ) -> Result<(), String> {
+        relax_masked_vertices(&mut self.vertices, &self.quads, mask, iterations, rate, max_displacement)
+    }
+
     pub fn validate_closed(&self) -> Result<(), String> {
         if self.vertices.is_empty() || self.triangles.is_empty() {
             return Err("Generated mesh must contain vertices and faces".into());
@@ -224,6 +234,27 @@ mod tests {
         assert!(b.vertices[2].distance(old) > 0.0);
         assert!(b.vertices[2].distance(old) <= 0.05001);
         assert!(b.relax_masked(&[0.0], 1, 0.2, 0.05).is_err());
+    }
+
+    #[test]
+    fn posed_mesh_fairing_preserves_indices_and_fixed_vertices() {
+        let mut builder = MeshBuilder::default();
+        for vertex in [
+            Vec3::new(-1.0, -1.0, 0.0), Vec3::new(1.0, -1.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.2), Vec3::new(-1.0, 1.0, 0.0),
+        ] { builder.vertex(vertex); }
+        builder.quad(0, 1, 2, 3);
+        let mut surface = SurfaceMesh {
+            vertices: builder.vertices,
+            quads: builder.quads,
+            triangles: builder.triangles,
+            caps: builder.caps,
+        };
+        let before = surface.triangles.clone();
+        let untouched = surface.vertices[0];
+        surface.relax_masked(&[0.0, 0.0, 1.0, 0.0], 4, 0.2, 0.010).unwrap();
+        assert_eq!(surface.triangles, before);
+        assert_eq!(surface.vertices[0], untouched);
     }
 
     #[test]
