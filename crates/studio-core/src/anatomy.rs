@@ -424,6 +424,43 @@ mod tests {
     }
 
     #[test]
+    fn full_target_stays_inside_preview_bounds_at_extreme_proportions() {
+        for extreme in [false, true] {
+            let mut recipe = Recipe::default();
+            if extreme {
+                recipe.shoulder_width = 0.62;
+                recipe.arm_length = 1.18;
+                recipe.leg_length = 1.18;
+                recipe.body_mass = 1.0;
+                recipe.morphology.hip_width = 1.25;
+                recipe.morphology.thigh_girth = 1.4;
+                recipe.morphology.torso_length = 1.15;
+                recipe.morphology.neck_length = 1.15;
+                recipe.morphology.chest_width = 1.25;
+                recipe.morphology.chest_depth = 1.30;
+            }
+            let target = AnatomyTarget::from_recipe(&recipe).unwrap();
+            for i in 0..=8 {
+                for j in 0..=8 {
+                    let t = i as f32 / 8.0;
+                    let u = j as f32 / 8.0;
+                    for point in [
+                        Vec3::new(-0.73, 0.12 + 1.64 * t, -0.42 + 0.84 * u),
+                        Vec3::new(0.73, 0.12 + 1.64 * t, -0.42 + 0.84 * u),
+                        Vec3::new(-0.73 + 1.46 * t, 0.12, -0.42 + 0.84 * u),
+                        Vec3::new(-0.73 + 1.46 * t, 1.76, -0.42 + 0.84 * u),
+                        Vec3::new(-0.73 + 1.46 * t, 0.12 + 1.64 * u, -0.42),
+                        Vec3::new(-0.73 + 1.46 * t, 0.12 + 1.64 * u, 0.42),
+                    ] {
+                        assert!(target.field(point * target.scale) > 0.0,
+                            "Anatomy target intersects the preview bounds at {point:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn full_torso_parameters_deform_target_without_regenerating_rig() {
         let neutral = AnatomyTarget::from_recipe(&Recipe::default()).unwrap();
         let mut broad = Recipe::default();
