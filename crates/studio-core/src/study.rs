@@ -292,8 +292,10 @@ mod tests {
     #[test]
     fn neutral_study_is_closed_and_uses_connected_shoulder_loops() {
         let model = build(&Recipe::default(), PreviewPose::default()).unwrap();
+        assert_eq!(model.vertices.len(), 580);
+        assert_eq!(model.quads.len(), 512);
+        assert_eq!(model.triangles.len(), 1120);
         assert!(model.quads.len() > 100 + 2 * SHOULDER_BLEND_RINGS * 16);
-        assert!(model.triangles.len() < 3000);
         assert_eq!(skeleton(&Recipe::default(), PreviewPose::default()).len(), 10);
     }
 
