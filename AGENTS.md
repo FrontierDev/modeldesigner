@@ -1,7 +1,7 @@
 # Model Designer engineering requirements
 
 - Maintain separate model-independent geometry operations and model-specific generator definitions.
-- No use of imported humanoid meshes as a prerequisite; no SDF/marching-tetrahedra humanoid generator.
+- No imported humanoid mesh is a prerequisite. Signed-distance fields and marching tetrahedra are permitted **only for a temporary anatomical shape target**, never as the production fixed-topology, rigged humanoid mesh.
 - `crates/studio-core/src/mesh.rs` owns explicit indexed patch topology, loop stitching, face triangulation and mesh validation.
 - `crates/studio-core/src/study.rs` constructs the first upper-body geometry from anatomical cross-sections and sewn shoulder-hole boundaries. Do not use duplicated seam vertices or separate capsule volumes for the shoulders.
 - Keep one active, evolving generator, not numbered anatomy versions. Preserve only Default preset.
@@ -46,3 +46,7 @@
 - Thigh Girth is a **whole upper-leg circumference control**, not merely a muscle bulge. The medial half-gap is a collision constraint: shift the thigh's cross-sectional center outward when required, rather than saturating the entire radius with `min(center_x-gap)`.
 - Preserve substantial neutral thigh volume and taper it smoothly to the knee. Every angular vertex in all root/loft rings must respond to increased girth, and the front/back depth must expand proportionally as well as the outer width.
 - The groin surface should have a smooth pubic/adductor and inguinal transition, not a flat pelvis lid. Contour-only correctives must modify free patch vertices, leaving waist and thigh root boundaries unchanged.
+- Maintain the **Anatomy target** as a separate unrigged visualization from the existing topology study. The default UI view may render its temporary triangles, but OBJ/rig exports must continue to use only the explicit fixed-topology path.
+- `anatomy.rs` provides generic continuous tissue-volume evaluation and named humanoid landmarks. Later quad fitting must use the target's signed field and preserve cage connectivity and skin-compatible vertex correspondence; do not attach primitive legs beneath a flat pelvis lid.
+- A preview mesh with temporary marching-tetrahedra triangles is not production topology. Test its finite normals and two-face edge pairing, bilateral symmetry, smooth tissue continuity and meaningful responses to hip/girth/stance/build sliders.
+- GitHub Actions CI remains **manual-only**, and must not be run, enabled on pushes, or dispatched without explicit user approval. Local compilation/tests may be used when available.
