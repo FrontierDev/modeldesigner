@@ -51,6 +51,25 @@ struct Measurements {
     shoulder_slope: f32,
     arm_length: f32,
     upper_arm_girth: f32,
+    musculature: f32,
+    body_mass: f32,
+    neck_length: f32,
+    neck_width: f32,
+    abdomen_fullness: f32,
+    back_curvature: f32,
+    ribcage_height: f32,
+    waist_depth: f32,
+    lat_spread: f32,
+    upper_back_fullness: f32,
+    pectoral_fullness: f32,
+    sternum_definition: f32,
+    shoulder_forward: f32,
+    deltoid_volume: f32,
+    deltoid_roundness: f32,
+    biceps_volume: f32,
+    triceps_volume: f32,
+    elbow_width: f32,
+    arm_taper: f32,
 }
 impl From<&Recipe> for Measurements {
     fn from(recipe: &Recipe) -> Self {
@@ -66,12 +85,44 @@ impl From<&Recipe> for Measurements {
             shoulder_slope: m.shoulder_slope,
             arm_length: recipe.arm_length,
             upper_arm_girth: m.upper_arm_girth,
+            musculature: recipe.musculature,
+            body_mass: recipe.body_mass,
+            neck_length: m.neck_length,
+            neck_width: m.neck_width,
+            abdomen_fullness: m.abdomen_fullness,
+            back_curvature: m.back_curvature,
+            ribcage_height: m.ribcage_height,
+            waist_depth: m.waist_depth,
+            lat_spread: m.lat_spread,
+            upper_back_fullness: m.upper_back_fullness,
+            pectoral_fullness: m.pectoral_fullness,
+            sternum_definition: m.sternum_definition,
+            shoulder_forward: m.shoulder_forward,
+            deltoid_volume: m.deltoid_volume,
+            deltoid_roundness: m.deltoid_roundness,
+            biceps_volume: m.biceps_volume,
+            triceps_volume: m.triceps_volume,
+            elbow_width: m.elbow_width,
+            arm_taper: m.arm_taper,
         }
     }
 }
 impl Measurements {
     fn y(self, y: f32) -> f32 {
-        (0.78 + (y - 0.78) * self.torso_length) * self.height
+        let stretched = 0.78 + (y - 0.78) * self.torso_length;
+        let rib_region = smoothstep(0.98, 1.17, y)
+            * (1.0 - smoothstep(1.41, 1.52, y));
+        let neck_region = smoothstep(1.42, 1.53, y);
+        (stretched
+            + 0.072 * (self.ribcage_height - 1.0) * rib_region
+            + 0.11 * (self.neck_length - 1.0) * neck_region)
+            * self.height
+    }
+
+    fn spinal_shift(self, y: f32) -> f32 {
+        let bend = smoothstep(0.90, 1.12, y)
+            * (1.0 - smoothstep(1.37, 1.53, y));
+        0.050 * (self.back_curvature - 0.5) * bend * self.height
     }
 
     fn side_slope(self, side_weight: f32, y: f32) -> f32 {
@@ -84,26 +135,58 @@ impl Measurements {
         let angle = TAU * column as f32 / RING_SIDES as f32;
         let sin = angle.sin();
         let cos = angle.cos();
+        let anterior = cos.max(0.0);
+        let posterior = (-cos).max(0.0);
+        let lateral = sin.abs();
         let chest = smoothstep(1.07, 1.31, y);
         let waist = 1.0 - smoothstep(1.00, 1.21, y);
+        let abdomen = smoothstep(0.87, 1.00, y)
+            * (1.0 - smoothstep(1.17, 1.30, y));
+        let back = smoothstep(1.10, 1.22, y)
+            * (1.0 - smoothstep(1.39, 1.50, y));
+        let shoulder_zone = smoothstep(1.25, 1.36, y)
+            * (1.0 - smoothstep(1.47, 1.53, y));
+        let neck = smoothstep(1.43, 1.53, y);
+        let upper_chest = smoothstep(1.20, 1.29, y)
+            * (1.0 - smoothstep(1.38, 1.46, y));
+        let medial = 1.0 - smoothstep(0.36, 0.94, lateral);
+
         let width = base_width
             * (1.0 + chest * (self.chest_width - 1.0))
             * (1.0 + chest * (self.shoulder_width - 1.0) * 0.7)
             * (1.0 + waist * (self.waist_width - 1.0))
-            * (1.0 + (1.0 - waist) * (1.0 - chest) * (self.ribcage_taper - 1.0));
-        let depth = base_depth * (1.0 + chest * (self.chest_depth - 1.0));
-        // Pectoral planes roll gently outward into the anterior axillary region.
-        // Relief is highest in the medial chest and fades toward the deltoid.
-        let upper_chest = smoothstep(1.20, 1.29, y) * (1.0 - smoothstep(1.38, 1.46, y));
-        let anterior = cos.max(0.0);
-        let medial = 1.0 - smoothstep(0.36, 0.94, sin.abs());
-        let relief = 0.012 * upper_chest * anterior * medial;
-        // A shallow sternum groove keeps the chest contour from becoming a cylinder.
-        let sternum = 0.004 * upper_chest * anterior * (1.0 - smoothstep(0.0, 0.20, sin.abs()));
+            * (1.0 + (1.0 - waist) * (1.0 - chest)
+                * (self.ribcage_taper - 1.0))
+            * (1.0 + 0.18 * waist * (self.body_mass - 0.5))
+            * (1.0 + 0.08 * chest * (self.musculature - 0.5))
+            * (1.0 + posterior * lateral * back
+                * (self.lat_spread - 1.0) * 0.90)
+            * (1.0 + neck * (self.neck_width - 1.0));
+        let depth = base_depth
+            * (1.0 + chest * (self.chest_depth - 1.0))
+            * (1.0 + waist * (self.waist_depth - 1.0))
+            * (1.0 + 0.23 * abdomen * (self.body_mass - 0.5))
+            * (1.0 + 0.55 * neck * (self.neck_width - 1.0));
+
+        // Anatomical contours are region-local and neutral at their defaults.
+        let pectoral = upper_chest * anterior * medial
+            * (0.012 + 0.050 * (self.pectoral_fullness - 0.5)
+                + 0.018 * (self.musculature - 0.5));
+        let sternum = upper_chest * anterior
+            * (1.0 - smoothstep(0.0, 0.20, lateral))
+            * (0.004 + 0.012 * (self.sternum_definition - 0.5));
+        let abdomen_projection = 0.052 * (self.abdomen_fullness - 0.5)
+            * abdomen * anterior;
+        let back_projection = -0.052 * (self.upper_back_fullness - 0.5)
+            * back * posterior;
+        let shoulder_translation = 0.090 * (self.shoulder_forward - 0.5)
+            * lateral.powi(4) * shoulder_zone;
         Vec3::new(
             sin * width * self.height,
-            self.y(y) + self.side_slope(sin.abs().powi(6), y),
-            (cos * depth + relief - sternum) * self.height,
+            self.y(y) + self.side_slope(lateral.powi(6), y),
+            ((cos * depth + pectoral - sternum + abdomen_projection
+                + back_projection + shoulder_translation) * self.height)
+                + self.spinal_shift(y),
         )
     }
 
@@ -111,7 +194,8 @@ impl Measurements {
         Vec3::new(
             side * 0.240 * self.shoulder_width * self.height,
             self.y(1.356) + self.side_slope(1.0, 1.356),
-            0.0,
+            self.spinal_shift(1.356)
+                + 0.090 * (self.shoulder_forward - 0.5) * self.height,
         )
     }
 
@@ -372,6 +456,8 @@ fn arm_ring(
     axis: Vec3,
     radius_y: f32,
     radius_z: f32,
+    m: Measurements,
+    band: usize,
 ) -> Vec<u32> {
     // The ellipse plane is perpendicular to the arm. We preserve correspondence
     // between the torso-hole boundary and every subsequent anatomical loop.
@@ -384,7 +470,31 @@ fn arm_ring(
         (offset.dot(front) / 0.065).atan2(offset.dot(up) / 0.085)
     }).collect();
     builder.loop_vertices(angles.into_iter().map(|angle| {
-        centre + up * (angle.cos() * radius_y) + front * (angle.sin() * radius_z)
+        let upper = angle.cos().max(0.0);
+        let anterior = angle.sin().max(0.0);
+        let posterior = (-angle.sin()).max(0.0);
+        let cap = [0.45, 1.0, 0.60, 0.12, 0.0][band];
+        let muscle_region = [0.0, 0.30, 1.0, 1.0, 0.18][band];
+        let taper = [0.12, 0.20, 0.45, 0.75, 1.0][band];
+
+        let volume = 1.0
+            + cap * (0.46 * (m.deltoid_volume - 0.5)
+                + 0.15 * (m.musculature - 0.5))
+            + 0.16 * muscle_region * (m.body_mass - 0.5)
+            + (m.arm_taper - 1.0) * taper * 0.45;
+        let elbow_factor = 1.0
+            + (m.elbow_width - 1.0) * [0.0, 0.0, 0.0, 0.25, 1.0][band];
+        let deltoid_top = 1.0
+            + 0.34 * (m.deltoid_roundness - 0.5) * cap * upper;
+        let muscle_front = 1.0 + 0.43
+            * (m.biceps_volume - 0.5) * muscle_region * anterior;
+        let muscle_back = 1.0 + 0.43
+            * (m.triceps_volume - 0.5) * muscle_region * posterior;
+        let width_y = radius_y * volume * elbow_factor * deltoid_top;
+        let width_z = radius_z * volume * elbow_factor
+            * muscle_front * muscle_back;
+        centre + up * (angle.cos() * width_y)
+            + front * (angle.sin() * width_z)
     }))
 }
 
@@ -430,32 +540,32 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         let transition_centre = hole_centre.lerp(shoulder, 0.44);
         let transition = arm_ring(&mut mesh, &hole, transition_centre, axis,
             0.090 * m.upper_arm_girth * m.height,
-            0.078 * m.upper_arm_girth * m.height);
+            0.078 * m.upper_arm_girth * m.height, m, 0);
         advance_socket_loop(&mut mesh, &hole, &transition, side, 0.028 * m.height)?;
         mesh.stitch(&hole, &transition)?;
 
         let deltoid_centre = shoulder;
         let deltoid = arm_ring(&mut mesh, &hole, deltoid_centre, axis,
             0.079 * m.upper_arm_girth * m.height,
-            0.072 * m.upper_arm_girth * m.height);
+            0.072 * m.upper_arm_girth * m.height, m, 1);
         advance_socket_loop(&mut mesh, &transition, &deltoid, side, 0.016 * m.height)?;
         mesh.stitch(&transition, &deltoid)?;
 
         let insertion_centre = shoulder.lerp(elbow, 0.24);
         let insertion = arm_ring(&mut mesh, &hole, insertion_centre, axis,
             0.070 * m.upper_arm_girth * m.height,
-            0.063 * m.upper_arm_girth * m.height);
+            0.063 * m.upper_arm_girth * m.height, m, 2);
         advance_socket_loop(&mut mesh, &deltoid, &insertion, side, 0.008 * m.height)?;
         mesh.stitch(&deltoid, &insertion)?;
 
         let mid = arm_ring(&mut mesh, &hole, shoulder.lerp(elbow, 0.55), axis,
             0.062 * m.upper_arm_girth * m.height,
-            0.056 * m.upper_arm_girth * m.height);
+            0.056 * m.upper_arm_girth * m.height, m, 3);
         mesh.stitch(&insertion, &mid)?;
 
         let elbow_loop = arm_ring(&mut mesh, &hole, elbow, axis,
             0.052 * m.upper_arm_girth * m.height,
-            0.050 * m.upper_arm_girth * m.height);
+            0.050 * m.upper_arm_girth * m.height, m, 4);
         mesh.stitch(&mid, &elbow_loop)?;
 
         let cap_index = mesh.vertices.len() as u32;
@@ -530,9 +640,9 @@ pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
     let m = Measurements::from(recipe);
     let mut joints = Vec::<Joint>::new();
     append_joint(&mut joints, "pelvis", None, Vec3::new(0.0, m.y(0.84), 0.0));
-    append_joint(&mut joints, "spine", Some(0), Vec3::new(0.0, m.y(1.12), 0.0));
-    append_joint(&mut joints, "chest", Some(1), Vec3::new(0.0, m.y(1.37), 0.0));
-    append_joint(&mut joints, "neck", Some(2), Vec3::new(0.0, m.y(1.52), 0.0));
+    append_joint(&mut joints, "spine", Some(0), Vec3::new(0.0, m.y(1.12), m.spinal_shift(1.12)));
+    append_joint(&mut joints, "chest", Some(1), Vec3::new(0.0, m.y(1.37), m.spinal_shift(1.37)));
+    append_joint(&mut joints, "neck", Some(2), Vec3::new(0.0, m.y(1.52), m.spinal_shift(1.52)));
     for side in [-1.0_f32, 1.0] {
         let shoulder = m.shoulder_centre(side);
         let clavicle_parent = 2;
@@ -542,7 +652,11 @@ pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
             Some(clavicle_parent),
             // The sternoclavicular end is the pivot; the lateral shoulder
             // is its child, rather than rotating the clavicle at the acromion.
-            Vec3::new(side * 0.065 * m.height, m.y(1.435), 0.040 * m.height),
+            Vec3::new(
+                side * 0.065 * m.height, m.y(1.435),
+                0.040 * m.height + m.spinal_shift(1.435)
+                    + 0.035 * (m.shoulder_forward - 0.5) * m.height,
+            ),
         );
         let clavicle_index = joints.len() - 1;
         append_joint(
