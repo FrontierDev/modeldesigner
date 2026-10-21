@@ -91,10 +91,17 @@ impl AnatomyTarget {
             Landmark { name: "pubic_symphysis", position: Vec3::new(0.0, 0.665, 0.072) * s },
         ];
         let mut volumes = vec![
-            tissue("pelvic_core", s, Vec3::new(0.0, 0.775 + y_shift, 0.0),
-                Vec3::new(0.176 * hip_width, 0.176, 0.130)),
-            tissue("lower_abdomen", s, Vec3::new(0.0, abdomen_y, 0.026),
-                Vec3::new(0.163 * hip_width, 0.144, 0.125 + 0.018 * mass)),
+            // The abdominal bridge follows the authored waist proportions.
+            // Previously this ellipsoid used hip width alone and forced an
+            // unrelated bulge into the narrower lower torso.
+            tissue("pelvic_core", s, Vec3::new(0.0, 0.740 + y_shift, 0.0),
+                Vec3::new(0.176 * hip_width, 0.148, 0.135)),
+            tissue("lower_abdomen", s, Vec3::new(0.0, abdomen_y - 0.012, 0.018),
+                Vec3::new(
+                    0.143 * (0.65 * m.waist_width + 0.35 * hip_width),
+                    0.152,
+                    0.118 * m.waist_depth + 0.018 * mass,
+                )),
             tissue("pubic_adductor_bridge", s, Vec3::new(0.0, 0.667 + y_shift, 0.051),
                 Vec3::new(0.083, 0.073, 0.079)),
         ];
@@ -124,8 +131,10 @@ impl AnatomyTarget {
             let glute = 0.5 + 0.5 * m.glute_volume;
             volumes.extend([
                 tissue(if side < 0.0 { "left_iliac" } else { "right_iliac" },
-                    s, Vec3::new(side * hip_x, 0.790 + y_shift, -0.008),
-                    Vec3::new(0.090, 0.121, 0.115)),
+                    // Iliac volume should support the lateral hip, but
+                    // stop below the waist so it cannot create a shelf.
+                    s, Vec3::new(side * hip_x, 0.749 + y_shift, -0.008),
+                    Vec3::new(0.091, 0.105, 0.115)),
                 tissue(if side < 0.0 { "left_gluteal" } else { "right_gluteal" },
                     s, Vec3::new(side * (hip_x - 0.003), 0.709, -0.067),
                     Vec3::new(0.100 + 0.010 * mass, 0.123, 0.102 + 0.039 * glute)),
@@ -179,7 +188,15 @@ impl AnatomyTarget {
     pub fn field(&self, point: Vec3) -> f32 {
         let mut distance = self.torso.field(point);
         for part in &self.volumes {
-            distance = smooth_union(distance, ellipsoid_field(point, part), self.blend_width);
+            // Broader union only around the overlapping lower torso, iliac
+            // crest and abdominal volumes. The gluteal/leg contours retain
+            // their existing, more localized transitions.
+            let blend = match part.name {
+                "pelvic_core" | "lower_abdomen"
+                | "left_iliac" | "right_iliac" => 0.060 * self.scale,
+                _ => self.blend_width,
+            };
+            distance = smooth_union(distance, ellipsoid_field(point, part), blend);
         }
         distance
     }
