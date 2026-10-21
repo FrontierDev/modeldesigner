@@ -90,13 +90,12 @@ fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
 fn draw_model_statistics(painter: &egui::Painter, viewport: Rect, model: &Model, recipe: &Recipe) {
     let panel = Rect::from_min_size(
         viewport.right_top() + egui::vec2(-194.0, 12.0),
-        egui::vec2(182.0, 165.0),
+        egui::vec2(182.0, 145.0),
     );
     painter.rect_filled(panel, 5.0, Color32::from_rgba_unmultiplied(28, 32, 38, 228));
     let entries = [
         ("MODEL", String::new()),
         ("Type", "Humanoid".to_owned()),
-        ("Generator", format!("v{}", recipe.generator_version)),
         ("Height", format!("{:.2} m", recipe.height)),
         ("Vertices", model.vertices.len().to_string()),
         ("Triangles", model.triangles.len().to_string()),
@@ -354,20 +353,6 @@ impl StudioApp {
         ui.heading("Presets");
         ui.separator();
         if ui.button("Default").clicked() { self.set_recipe(Recipe::default()); }
-        if ui.button("Tall / Broad").clicked() {
-            self.set_recipe(Recipe { name: "Tall / Broad".into(), height: 1.99,
-                shoulder_width: 0.55, musculature: 0.76, body_mass: 0.55, ..Recipe::default() });
-        }
-        if ui.button("Short / Stocky").clicked() {
-            self.set_recipe(Recipe { name: "Short / Stocky".into(), height: 1.58,
-                shoulder_width: 0.56, leg_length: 0.88, musculature: 0.62,
-                body_mass: 0.87, ..Recipe::default() });
-        }
-        if ui.button("Lean / Long-limbed").clicked() {
-            self.set_recipe(Recipe { name: "Lean / Long-limbed".into(), height: 1.89,
-                arm_length: 1.15, leg_length: 1.13, musculature: 0.23,
-                body_mass: 0.17, ..Recipe::default() });
-        }
     }
 
     fn draw_build(&mut self, ui: &mut egui::Ui) {
