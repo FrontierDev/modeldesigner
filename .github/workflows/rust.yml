@@ -16,11 +16,11 @@ jobs:
           components: rustfmt, clippy
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
-      - name: Check formatting
-        run: cargo fmt --all -- --check
       - name: Compile workspace
         run: cargo check --workspace
       - name: Run unit tests
         run: cargo test --workspace
       - name: Lint workspace
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check formatting
+        run: cargo fmt --all -- --check
