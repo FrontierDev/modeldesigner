@@ -16,7 +16,7 @@ pub fn evaluate_joints(rest: &[Joint], local_rotations: &[Quat]) -> Result<SkinM
     if rest.len() != local_rotations.len() || rest.is_empty() {
         return Err("The rotation array must match a nonempty rest skeleton".into());
     }
-    let mut world = Vec::with_capacity(rest.len());
+    let mut world = Vec::<Mat4>::with_capacity(rest.len());
     let mut inverse_bind = Vec::with_capacity(rest.len());
     let mut skin = Vec::with_capacity(rest.len());
     for (index, joint) in rest.iter().enumerate() {

@@ -272,8 +272,30 @@ mod tests {
         }).unwrap();
         // [4,5,6] = left clavicle/shoulder/elbow, [7,8,9] right.
         assert_ne!(l.joints[6].position, neutral.joints[6].position);
-        assert_eq!(l.joints[9].position, neutral.joints[9].position);
-        assert_eq!(r.joints[6].position, neutral.joints[6].position);
+        assert!(
+            Vec3::from_array(l.joints[9].position)
+                .distance(Vec3::from_array(neutral.joints[9].position)) < 1e-5
+        );
+        assert!(
+            Vec3::from_array(r.joints[6].position)
+                .distance(Vec3::from_array(neutral.joints[6].position)) < 1e-5
+        );
+        // Right upper-arm vertices are unaffected by moving only the left arm
+        // (and conversely); the torso remains stationary.
+        for i in 0..418 {
+            assert!(Vec3::from_array(l.vertices[i])
+                .distance(Vec3::from_array(neutral.vertices[i])) < 1e-5);
+            assert!(Vec3::from_array(r.vertices[i])
+                .distance(Vec3::from_array(neutral.vertices[i])) < 1e-5);
+        }
+        for i in 418..499 {
+            assert!(Vec3::from_array(r.vertices[i])
+                .distance(Vec3::from_array(neutral.vertices[i])) < 1e-5);
+        }
+        for i in 499..580 {
+            assert!(Vec3::from_array(l.vertices[i])
+                .distance(Vec3::from_array(neutral.vertices[i])) < 1e-5);
+        }
         assert_ne!(r.joints[9].position, neutral.joints[9].position);
         assert_eq!(l.vertices.len(), neutral.vertices.len());
         assert_eq!(r.vertices.len(), neutral.vertices.len());
