@@ -36,8 +36,9 @@ pub(crate) fn field(p: Vec3) -> f32 {
     d = union_smooth(
         d, ellipsoid(p, Vec3::new(0.0, 0.918, -0.006), Vec3::new(0.186, 0.119, 0.137)), 0.048,
     );
+    // Symmetrical pectorals must only be blended once.
+    d = union_smooth(d, pectoral_fan(p), 0.040);
     for side in [-1.0_f32, 1.0] {
-        d = union_smooth(d, pectoral_fan(p), 0.040);
         // Clavicle shelf from manubrium to acromion: this controls shoulder
         // width without an oversized deltoid ball.
         d = union_smooth(
