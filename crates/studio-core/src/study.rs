@@ -4,15 +4,17 @@
 //! generic topology engine can build a branching, closed quad surface with
 //! anatomical controls and no imported base mesh or implicit field.
 
-use crate::{Joint, Recipe};
+use crate::{Joint, PreviewPose, Recipe};
 use crate::mesh::{MeshBuilder, SurfaceMesh};
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use std::f32::consts::TAU;
 
 const RING_SIDES: usize = 32;
 const ARM_HOLE_START_ROW: usize = 6;
 const ARM_HOLE_END_ROW: usize = 10;
 const ARM_HOLE_COLUMNS: usize = 4;
+#[cfg(test)]
+const SHOULDER_BLEND_RINGS: usize = 2;
 
 // y, half-width, half-depth. These are surface *landmarks*, not volume primitives.
 // Joint and patch positions are evaluated from the same normalized measurements.
@@ -90,14 +92,18 @@ impl Measurements {
             * (1.0 + waist * (self.waist_width - 1.0))
             * (1.0 + (1.0 - waist) * (1.0 - chest) * (self.ribcage_taper - 1.0));
         let depth = base_depth * (1.0 + chest * (self.chest_depth - 1.0));
-        // Very shallow relief from chest planes, tapering gently toward the axilla.
-        let upper_chest = smoothstep(1.22, 1.30, y) * (1.0 - smoothstep(1.38, 1.47, y));
+        // Pectoral planes roll gently outward into the anterior axillary region.
+        // Relief is highest in the medial chest and fades toward the deltoid.
+        let upper_chest = smoothstep(1.20, 1.29, y) * (1.0 - smoothstep(1.38, 1.46, y));
         let anterior = cos.max(0.0);
-        let relief = 0.007 * upper_chest * anterior * smoothstep(0.02, 0.09, sin.abs());
+        let medial = 1.0 - smoothstep(0.36, 0.94, sin.abs());
+        let relief = 0.012 * upper_chest * anterior * medial;
+        // A shallow sternum groove keeps the chest contour from becoming a cylinder.
+        let sternum = 0.004 * upper_chest * anterior * (1.0 - smoothstep(0.0, 0.20, sin.abs()));
         Vec3::new(
             sin * width * self.height,
             self.y(y) + self.side_slope(sin.abs().powi(6), y),
-            (cos * depth + relief) * self.height,
+            (cos * depth + relief - sternum) * self.height,
         )
     }
 
@@ -134,6 +140,18 @@ fn boundary(rings: &[Vec<u32>], centre_column: usize) -> Vec<u32> {
     result
 }
 
+/// A test pose pivots the upper arm about its humeral head. Blending the
+/// rotation over two shoulder loops keeps the sewn torso seam stationary.
+fn arm_rotation(side: f32, pose: PreviewPose) -> Quat {
+    let raise = Quat::from_rotation_z(side * pose.arm_raise_deg.to_radians());
+    let forward = Quat::from_rotation_y(-side * pose.arm_forward_deg.to_radians());
+    forward * raise
+}
+
+fn pose_vertex(rest: Vec3, shoulder: Vec3, rotation: Quat, weight: f32) -> Vec3 {
+    shoulder + Quat::IDENTITY.slerp(rotation, weight) * (rest - shoulder)
+}
+
 fn arm_ring(
     builder: &mut MeshBuilder,
     hole: &[u32],
@@ -141,6 +159,9 @@ fn arm_ring(
     axis: Vec3,
     radius_y: f32,
     radius_z: f32,
+    shoulder: Vec3,
+    rotation: Quat,
+    pose_weight: f32,
 ) -> Vec<u32> {
     // The ellipse plane is perpendicular to the arm. We preserve correspondence
     // between the torso-hole boundary and every subsequent anatomical loop.
@@ -153,11 +174,12 @@ fn arm_ring(
         (offset.dot(front) / 0.065).atan2(offset.dot(up) / 0.085)
     }).collect();
     builder.loop_vertices(angles.into_iter().map(|angle| {
-        centre + up * (angle.cos() * radius_y) + front * (angle.sin() * radius_z)
+        let rest = centre + up * (angle.cos() * radius_y) + front * (angle.sin() * radius_z);
+        pose_vertex(rest, shoulder, rotation, pose_weight)
     }))
 }
 
-pub fn build(recipe: &Recipe) -> Result<SurfaceMesh, String> {
+pub fn build(recipe: &Recipe, pose: PreviewPose) -> Result<SurfaceMesh, String> {
     let m = Measurements::from(recipe);
     let mut mesh = MeshBuilder::default();
     let mut rings = Vec::new();
@@ -182,23 +204,46 @@ pub fn build(recipe: &Recipe) -> Result<SurfaceMesh, String> {
 
     for (side, centre_column) in [(1.0_f32, 8_usize), (-1.0_f32, 24_usize)] {
         let hole = boundary(&rings, centre_column);
-        let centre = m.shoulder_centre(side);
+        let hole_centre = hole.iter().map(|&id| mesh.vertices[id as usize]).sum::<Vec3>()
+            / hole.len() as f32;
+        let shoulder = m.shoulder_centre(side);
         let elbow = m.elbow(side);
-        let axis = (elbow - centre).normalize();
-        let outer = arm_ring(&mut mesh, &hole, centre, axis,
-            0.080 * m.upper_arm_girth * m.height,
-            0.074 * m.upper_arm_girth * m.height);
-        mesh.stitch(&hole, &outer)?;
-        let mid_centre = centre.lerp(elbow, 0.48);
-        let mid = arm_ring(&mut mesh, &hole, mid_centre, axis,
-            0.066 * m.upper_arm_girth * m.height,
-            0.058 * m.upper_arm_girth * m.height);
-        mesh.stitch(&outer, &mid)?;
+        let axis = (elbow - shoulder).normalize();
+        let rotation = arm_rotation(side, pose);
+        // Two shoulder transition loops allow the pectoral/axillary boundary
+        // to settle into a deltoid loop without pulling its shared torso rim.
+        let transition_centre = hole_centre.lerp(shoulder, 0.44);
+        let transition = arm_ring(&mut mesh, &hole, transition_centre, axis,
+            0.090 * m.upper_arm_girth * m.height,
+            0.078 * m.upper_arm_girth * m.height,
+            shoulder, rotation, 0.15);
+        mesh.stitch(&hole, &transition)?;
+
+        let deltoid = arm_ring(&mut mesh, &hole, shoulder, axis,
+            0.079 * m.upper_arm_girth * m.height,
+            0.072 * m.upper_arm_girth * m.height,
+            shoulder, rotation, 0.50);
+        mesh.stitch(&transition, &deltoid)?;
+
+        let insertion = arm_ring(&mut mesh, &hole, shoulder.lerp(elbow, 0.24), axis,
+            0.070 * m.upper_arm_girth * m.height,
+            0.063 * m.upper_arm_girth * m.height,
+            shoulder, rotation, 0.85);
+        mesh.stitch(&deltoid, &insertion)?;
+
+        let mid = arm_ring(&mut mesh, &hole, shoulder.lerp(elbow, 0.55), axis,
+            0.062 * m.upper_arm_girth * m.height,
+            0.056 * m.upper_arm_girth * m.height,
+            shoulder, rotation, 1.0);
+        mesh.stitch(&insertion, &mid)?;
+
         let elbow_loop = arm_ring(&mut mesh, &hole, elbow, axis,
             0.052 * m.upper_arm_girth * m.height,
-            0.050 * m.upper_arm_girth * m.height);
+            0.050 * m.upper_arm_girth * m.height,
+            shoulder, rotation, 1.0);
         mesh.stitch(&mid, &elbow_loop)?;
-        mesh.cap(&elbow_loop, elbow + axis * 0.004 * m.height, false)?;
+        let cap_centre = pose_vertex(elbow + axis * 0.004 * m.height, shoulder, rotation, 1.0);
+        mesh.cap(&elbow_loop, cap_centre, false)?;
     }
     mesh.build()
 }
@@ -207,7 +252,7 @@ fn append_joint(joints: &mut Vec<Joint>, name: &'static str, parent: Option<usiz
     joints.push(Joint { name, parent, position: point.to_array() });
 }
 
-pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
+pub fn skeleton(recipe: &Recipe, pose: PreviewPose) -> Vec<Joint> {
     let m = Measurements::from(recipe);
     let mut joints = Vec::<Joint>::new();
     append_joint(&mut joints, "pelvis", None, Vec3::new(0.0, m.y(0.84), 0.0));
@@ -233,7 +278,8 @@ pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
         append_joint(
             &mut joints,
             if side < 0.0 { "left_elbow" } else { "right_elbow" },
-            Some(shoulder_index), m.elbow(side),
+            Some(shoulder_index),
+            pose_vertex(m.elbow(side), shoulder, arm_rotation(side, pose), 1.0),
         );
     }
     joints
@@ -245,20 +291,39 @@ mod tests {
 
     #[test]
     fn neutral_study_is_closed_and_uses_connected_shoulder_loops() {
-        let model = build(&Recipe::default()).unwrap();
-        assert!(model.quads.len() > 100);
+        let model = build(&Recipe::default(), PreviewPose::default()).unwrap();
+        assert!(model.quads.len() > 100 + 2 * SHOULDER_BLEND_RINGS * 16);
         assert!(model.triangles.len() < 3000);
-        assert_eq!(skeleton(&Recipe::default()).len(), 10);
+        assert_eq!(skeleton(&Recipe::default(), PreviewPose::default()).len(), 10);
+    }
+
+    #[test]
+    fn posing_preserves_indices_and_keeps_stitched_seams_closed() {
+        let recipe = Recipe::default();
+        let rest = build(&recipe, PreviewPose::default()).unwrap();
+        for pose in [
+            PreviewPose { arm_raise_deg: 45.0, arm_forward_deg: 0.0 },
+            PreviewPose { arm_raise_deg: 0.0, arm_forward_deg: 40.0 },
+            PreviewPose { arm_raise_deg: 65.0, arm_forward_deg: 45.0 },
+        ] {
+            let posed = build(&recipe, pose).unwrap();
+            assert_eq!(posed.quads, rest.quads);
+            assert_eq!(posed.triangles, rest.triangles);
+            assert_ne!(posed.vertices, rest.vertices);
+            let joints = skeleton(&recipe, pose);
+            assert_eq!(joints.len(), 10);
+            assert!(joints.iter().all(|joint| joint.position.iter().all(|value| value.is_finite())));
+        }
     }
 
     #[test]
     fn supported_parameters_preserve_face_indexing() {
-        let baseline = build(&Recipe::default()).unwrap();
+        let baseline = build(&Recipe::default(), PreviewPose::default()).unwrap();
         let mut modified = Recipe::default();
         modified.shoulder_width = 0.60;
         modified.morphology.chest_width = 1.2;
         modified.morphology.upper_arm_girth = 1.3;
-        let edited = build(&modified).unwrap();
+        let edited = build(&modified, PreviewPose::default()).unwrap();
         assert_eq!(baseline.quads, edited.quads);
         assert_eq!(baseline.triangles, edited.triangles);
         assert_ne!(baseline.vertices, edited.vertices);
