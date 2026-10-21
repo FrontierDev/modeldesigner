@@ -14,3 +14,6 @@
 - Define any new build parameter in the versioned recipe, shared `controls::BUILD_CONTROLS` contract and regional deformation engine. Keep IDs stable, validate bounds, and extend per-parameter topology regression tests.
 - Keep legacy v1 recipes readable using neutral serde defaults for new optional morphology fields. Do not silently change geometry at all-neutral defaults.
 - Use Player mode for `player_editable` controls, Advanced for all controls, and preserve consistent schema export via `controls::build_schema_json`.
+- Generator v1 and v2 must keep separate canonical reference meshes. Never redirect an older saved recipe to the newer surface; preserve mesh vertex order, triangle indices and rig metadata version for legacy v1.
+- Generator v2 adds simple facial features and improved body silhouette. Treat it as anatomical reference geometry, not a finished face or animation-ready retopology.
+- Keep the top-right preview statistics panel consistent with envmoddesigner. The preview uses the raw triangle mesh path (not anti-aliased convex polygons) and smoothly interpolated per-vertex normals.
