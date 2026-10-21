@@ -393,8 +393,14 @@ impl StudioApp {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.show_advanced, false, "Player");
             ui.selectable_value(&mut self.show_advanced, true, "Advanced");
+            if ui.small_button("Reset all").clicked() {
+                for control in BUILD_CONTROLS.iter().copied().filter(|c| c.implemented()) {
+                    control.set(&mut self.recipe, control.default);
+                }
+                self.regenerate();
+            }
         });
-        ui.add_space(12.0);
+        ui.add_space(8.0);
 
         let slider_width = (ui.available_width() - 70.0).max(130.0);
         ui.spacing_mut().slider_width = slider_width;
@@ -402,25 +408,36 @@ impl StudioApp {
         let mut changed = false;
         for (section, label) in [
             (BuildSection::Proportions, "Proportions"),
-            (BuildSection::Torso, "Torso"),
+            (BuildSection::Physique, "Physique"),
+            (BuildSection::Neck, "Neck"),
+            (BuildSection::Torso, "Torso & back"),
+            (BuildSection::Chest, "Chest & pectorals"),
+            (BuildSection::Shoulders, "Shoulders & deltoids"),
             (BuildSection::Arms, "Upper arms"),
         ] {
-            if !BUILD_CONTROLS.iter().any(|control| {
-                control.section == section && control.implemented() && (show_advanced || control.player_editable)
-            }) {
-                continue;
-            }
-            egui::CollapsingHeader::new(label)
-                .default_open(matches!(section, BuildSection::Proportions | BuildSection::Physique))
+            let visible: Vec<BuildControl> = BUILD_CONTROLS.iter().copied()
+                .filter(|control| control.section == section
+                    && control.implemented()
+                    && (show_advanced || control.player_editable))
+                .collect();
+            if visible.is_empty() { continue; }
+            egui::CollapsingHeader::new(format!("{} ({})", label, visible.len()))
+                .default_open(matches!(
+                    section, BuildSection::Proportions | BuildSection::Chest
+                    | BuildSection::Shoulders
+                ))
                 .show(ui, |ui| {
-                    ui.add_space(4.0);
-                    for control in BUILD_CONTROLS.iter().copied().filter(|control| {
-                        control.section == section && control.implemented() && (show_advanced || control.player_editable)
-                    }) {
+                    if ui.small_button("Reset group").clicked() {
+                        for control in &visible {
+                            control.set(&mut self.recipe, control.default);
+                        }
+                        changed = true;
+                    }
+                    for control in visible {
                         changed |= build_slider(ui, &mut self.recipe, control);
                     }
                 });
-            ui.add_space(4.0);
+            ui.add_space(3.0);
         }
         if changed { self.regenerate(); }
     }
