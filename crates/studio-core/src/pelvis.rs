@@ -73,9 +73,8 @@ impl Dimensions {
         let sin = phi.sin();
         let centre_x = side * 0.100 * self.hip_width * self.scale;
         let radius_x = (0.083 * self.thigh_girth
-            * (1.0 + 0.10 * (self.body_mass - 0.5)))
-            .min(centre_x.abs() * 0.87)
-            * self.scale;
+            * (1.0 + 0.10 * (self.body_mass - 0.5)) * self.scale)
+            .min(centre_x.abs() * 0.87);
         let radius_z = 0.113 * self.thigh_girth
             * (1.0 + 0.12 * (self.body_mass - 0.5))
             * self.scale;
@@ -320,8 +319,9 @@ pub fn append(
         // The curved socket is high laterally and low at the inner crotch.
         for (band, fraction) in [0.18_f32, 0.42, 0.70, 1.0].into_iter().enumerate() {
             let blend = fraction * fraction * (3.0 - 2.0 * fraction);
-            let next = mesh.loop_vertices(root.iter().enumerate().map(|(i, &id)| {
-                let origin = mesh.vertices[id as usize];
+            let roots: Vec<Vec3> = root.iter()
+                .map(|&id| mesh.vertices[id as usize]).collect();
+            let next = mesh.loop_vertices(roots.into_iter().enumerate().map(|(i, origin)| {
                 let phi = -3.0 * PI / 4.0 + TAU * i as f32 / THIGH_RING_COUNT as f32;
                 let target = Vec3::new(
                     knee.x + phi.cos() * 0.052 * d.thigh_girth * d.scale,
