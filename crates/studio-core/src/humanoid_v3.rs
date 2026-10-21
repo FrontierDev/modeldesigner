@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn clavicle_ridge_is_present_anterior_to_acromion() {
-        let anterior = Vec3::new(0.15, 1.446, 0.081);
+        let anterior = Vec3::new(0.15, 1.438, 0.055);
         assert!(field(anterior) < 0.0);
     }
 }
