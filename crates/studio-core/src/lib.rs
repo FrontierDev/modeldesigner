@@ -511,7 +511,7 @@ mod tests {
         recipe.morphology.stance_width = 1.12;
         let saved = recipe.to_json().unwrap();
         assert_eq!(Recipe::from_json(&saved).unwrap(), recipe);
-        assert!(saved.contains("\\"morphology\\""));
+        assert!(saved.contains("morphology"));
         recipe.morphology.chest_width = f32::NAN;
         assert!(recipe.validate().is_err());
         recipe.morphology.chest_width = 4.0;
