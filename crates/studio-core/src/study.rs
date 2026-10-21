@@ -156,8 +156,10 @@ pub fn pose_rotations(pose: PreviewPose) -> [Quat; 10] {
         ( 1.0_f32, 7_usize, 8_usize, pose.right),
     ] {
         let rotation = arm_rotation(side, arm);
-        rotations[clavicle] = Quat::IDENTITY.slerp(rotation, 0.12);
-        rotations[shoulder] = Quat::IDENTITY.slerp(rotation, 0.88);
+        // Clavicular elevation originates close to the sternum. The remaining
+        // humeral rotation is local to the acromial shoulder joint.
+        rotations[clavicle] = Quat::IDENTITY.slerp(rotation, 0.18);
+        rotations[shoulder] = Quat::IDENTITY.slerp(rotation, 0.82);
     }
     rotations
 }
@@ -378,7 +380,9 @@ pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
             &mut joints,
             if side < 0.0 { "left_clavicle" } else { "right_clavicle" },
             Some(clavicle_parent),
-            shoulder.lerp(Vec3::new(0.0, m.y(1.43), 0.03 * m.height), 0.15),
+            // The sternoclavicular end is the pivot; the lateral shoulder
+            // is its child, rather than rotating the clavicle at the acromion.
+            Vec3::new(side * 0.065 * m.height, m.y(1.435), 0.040 * m.height),
         );
         let clavicle_index = joints.len() - 1;
         append_joint(
