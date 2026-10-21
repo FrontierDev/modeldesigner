@@ -112,6 +112,42 @@ impl BuildControl {
         )
     }
 
+    /// Anatomical intent and precise effect; exported with the game UI schema.
+    pub fn description(self) -> &'static str {
+        match self.parameter {
+            BuildParameter::Height => "Overall reference stature; scales torso, shoulders, arm length and joints.",
+            BuildParameter::ShoulderWidth => "Lateral shoulder-girdle span; moves both shoulder landmarks and chest contour.",
+            BuildParameter::ArmLength => "Upper-arm length from humeral head to elbow (forearm is not modelled).",
+            BuildParameter::Musculature => "Overall upper-body muscle definition, strongest around pectorals and deltoids.",
+            BuildParameter::BodyMass => "Soft-tissue fullness through the waist, abdomen and upper arms.",
+            BuildParameter::TorsoLength => "Torso length between lower trunk and neck.",
+            BuildParameter::NeckLength => "Length of the temporary neck termination and neck joint.",
+            BuildParameter::NeckWidth => "Width and depth of the neck termination.",
+            BuildParameter::ShoulderSlope => "Inclination of upper torso and shoulder line.",
+            BuildParameter::ChestWidth => "Side-to-side width of the ribcage and upper chest.",
+            BuildParameter::ChestDepth => "Front-to-back depth of the ribcage.",
+            BuildParameter::RibcageTaper => "Relative widening or narrowing of the lower ribcage.",
+            BuildParameter::WaistWidth => "Width of the lower torso and waist.",
+            BuildParameter::AbdomenFullness => "Forward projection of the abdominal surface.",
+            BuildParameter::BackCurvature => "Front-to-back bending of the spine and torso profile.",
+            BuildParameter::UpperArmGirth => "Overall thickness of each upper arm.",
+            BuildParameter::RibcageHeight => "Relative vertical span of the thoracic region.",
+            BuildParameter::WaistDepth => "Front-to-back thickness around the waist.",
+            BuildParameter::LatSpread => "Width of the posterior-lateral back under the arms.",
+            BuildParameter::UpperBackFullness => "Rearward surface volume of the upper back.",
+            BuildParameter::PectoralFullness => "Anterior pectoral projection, distinct from overall chest depth.",
+            BuildParameter::SternumDefinition => "Depth of the narrow groove at the chest centreline.",
+            BuildParameter::ShoulderForward => "Moves the shoulder girdle and humeral heads forward or backward.",
+            BuildParameter::DeltoidVolume => "Overall thickness of the deltoid cap near the shoulder.",
+            BuildParameter::DeltoidRoundness => "Fullness of the upper deltoid contour rather than arm girth.",
+            BuildParameter::BicepsVolume => "Anterior muscle bulge along the upper-arm surface.",
+            BuildParameter::TricepsVolume => "Posterior muscle bulge along the upper-arm surface.",
+            BuildParameter::ElbowWidth => "Width of the temporary elbow-end loop.",
+            BuildParameter::ArmTaper => "How rapidly the arm narrows toward the elbow.",
+            _ => "Not available until the corresponding anatomy is implemented.",
+        }
+    }
+
     pub fn get(self, recipe: &Recipe) -> f32 {
         match self.parameter {
             BuildParameter::Height => recipe.height,
@@ -231,6 +267,7 @@ pub fn build_schema_json() -> Result<String, String> {
             "id": control.id,
             "section": control.section.id(),
             "label": control.label,
+            "description": control.description(),
             "min": control.min,
             "max": control.max,
             "default": control.default,

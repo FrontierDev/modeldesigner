@@ -445,7 +445,7 @@ impl StudioApp {
 
 /// Keep the editor controls aligned with the future in-game build sliders.
 fn build_slider(ui: &mut egui::Ui, recipe: &mut Recipe, control: BuildControl) -> bool {
-    ui.label(control.label);
+    ui.label(control.label).on_hover_text(control.description());
     let mut display_value = control.get(recipe) * control.display_scale;
     let range = control.min * control.display_scale..=control.max * control.display_scale;
     let changed = ui.add(
