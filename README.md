@@ -4,11 +4,11 @@ A standalone, native Rust procedural model-authoring application for **Ninth Age
 
 ## First milestone
 
-- One **canonical humanoid triangle topology** constructed *once* from a fixed implicit reference body and reused for all edits. Changing proportions **never remeshes or changes vertex indices**.
+- **Two versioned reference topologies:** legacy generator v1 remains unchanged; new generator v2 produces a more anatomical head, neck, shoulders, torso, hands and feet. Within each generator version, changing proportions **never remeshes or changes vertex indices**.
 - Thirty live build sliders: the original height, shoulder width, arm length, leg length, musculature and body mass controls, plus 24 region-specific morphology controls spanning torso, neck/head, arms/hands, pelvis and legs. Bounds, defaults and player-editability are defined centrally in `studio-core`.
 - A fixed, parented **19-joint humanoid A-pose skeleton**, updated to the current body proportions.
 - Deterministic per-vertex nearest-segment skin influence metadata (four weighted joint indices per vertex) for subsequent rigging experiments.
-- Shaded orbit/zoom/pan preview, with optional wireframe and skeleton overlays in a preview toolbar. Three panels: model types and presets, preview, and character build.
+- Smooth normal-shaded orbit/zoom/pan preview with optional wireframe/skeleton overlays, and a compact top-right model statistics panel showing geometry and rig counts. Three panels: model types and presets, preview, and character build.
 - Versioned JSON recipes, New/Open/Save/Save As, and OBJ geometry plus companion `.rig.json` export containing named bones, parents, positions, and per-vertex influences.
 - Tests for topology invariance, deterministic generation, skeleton hierarchy, skin-weight normalization, parameter validation and exported index ranges.
 
@@ -16,7 +16,7 @@ A standalone, native Rust procedural model-authoring application for **Ninth Age
 
 This is a **topology-preservation/authoring prototype, not a production retopology or skinned-animation system**. The canonical surface is *triangulated from an implicit field*; it is not a hand-crafted deformation-ready quad cage. The model is one indexed mesh, but joint edge flow and actual deformation/animation quality remain to be validated. Skinning influence metadata is preliminary; **OBJ does not encode a rig**, and exporting the companion JSON does not make an immediately playable Unity Humanoid asset. No textures, clothing, armour, animation, inverse kinematics or automatic LODs are included.
 
-Regional morphology deforms the same indexed reference mesh, with structural offsets also applied to the skeleton's rest positions. Legacy v1 recipes with no `morphology` object load neutral defaults. The reference still comes from a triangulated implicit field rather than animation-ready retopology.
+Regional morphology deforms the same indexed reference mesh **within each generator version**, with structural offsets also applied to the skeleton's rest positions. Generator v1 recipes, including older recipes without a `morphology` object, remain readable and retain their original mesh. New recipes use generator v2 by default. The reference still comes from a triangulated implicit field rather than animation-ready retopology.
 
 Body geometry is deliberately kept in `studio-core`, independent of Unity and the UI. The next step should be replacing the canonical implicit reference mesh with a hand-reviewed quad topology and validating skin deformation under a shared humanoid animation suite, without changing recipe semantics.
 
