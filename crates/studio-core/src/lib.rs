@@ -3,13 +3,14 @@
 //! Generic quad meshing is separate from anatomy-specific construction.
 //! The only active generator is a connected upper-body geometry study.
 
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
 pub mod controls;
 pub mod mesh;
 pub mod morphology;
+pub mod skinning;
 mod study;
 
 pub use controls::{BuildControl, BuildParameter, BuildSection, BUILD_CONTROLS};
@@ -18,30 +19,38 @@ pub use morphology::Morphology;
 pub const SCHEMA_VERSION: u32 = 1;
 pub const REFERENCE_HEIGHT: f32 = 1.75;
 
-/// Non-persistent pose controls for testing shoulder topology in the editor.
-/// These are not part of the character recipe or exported rig.
+/// Independent diagnostic rotation of an upper arm. Not saved in a recipe.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct PreviewPose {
-    pub arm_raise_deg: f32,
-    pub arm_forward_deg: f32,
+pub struct ArmPose {
+    pub raise_deg: f32,
+    pub forward_deg: f32,
 }
-impl PreviewPose {
-    pub fn validate(self) -> Result<(), String> {
-        if !self.arm_raise_deg.is_finite()
-            || !(0.0..=70.0).contains(&self.arm_raise_deg)
-            || !self.arm_forward_deg.is_finite()
-            || !(0.0..=55.0).contains(&self.arm_forward_deg)
+impl ArmPose {
+    fn validate(self) -> Result<(), String> {
+        if !self.raise_deg.is_finite() || !(0.0..=70.0).contains(&self.raise_deg)
+            || !self.forward_deg.is_finite() || !(0.0..=55.0).contains(&self.forward_deg)
         {
-            return Err("Preview arm raise must be 0–70° and forward reach 0–55°".into());
+            return Err("Arm raise must be 0–70° and forward reach 0–55°".into());
         }
         Ok(())
     }
-
-    pub fn is_neutral(self) -> bool {
-        self.arm_raise_deg == 0.0 && self.arm_forward_deg == 0.0
-    }
 }
 
+/// Ephemeral skinning preview: two independent arms, one canonical bind pose.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PreviewPose {
+    pub left: ArmPose,
+    pub right: ArmPose,
+}
+impl PreviewPose {
+    pub fn validate(self) -> Result<(), String> {
+        self.left.validate()?;
+        self.right.validate()
+    }
+    pub fn is_neutral(self) -> bool {
+        self.left == ArmPose::default() && self.right == ArmPose::default()
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -138,6 +147,7 @@ struct RigExport<'a> {
     joint_count: usize,
     joints: &'a [Joint],
     influences: &'a [VertexInfluence],
+    inverse_bind_matrices: Vec<[f32; 16]>,
 }
 
 impl Model {
@@ -156,80 +166,58 @@ impl Model {
     }
 
     pub fn to_rig_json(&self) -> Result<String, String> {
+        let neutral_rotations = vec![Quat::IDENTITY; self.joints.len()];
+        let matrices = skinning::evaluate_joints(&self.joints, &neutral_rotations)?;
         serde_json::to_string_pretty(&RigExport {
             schema_version: SCHEMA_VERSION,
             vertex_count: self.vertices.len(),
             joint_count: self.joints.len(),
             joints: &self.joints,
             influences: &self.influences,
+            inverse_bind_matrices: matrices.inverse_bind.iter()
+                .map(|matrix| matrix.to_cols_array()).collect(),
         })
         .map_err(|err| err.to_string())
     }
 }
 
-fn closest_influences(point: Vec3, joints: &[Joint]) -> Result<VertexInfluence, String> {
-    let mut candidates = Vec::with_capacity(joints.len());
-    for (i, joint) in joints.iter().enumerate() {
-        let Some(parent) = joint.parent else { continue };
-        let a = Vec3::from_array(joints[parent].position);
-        let b = Vec3::from_array(joint.position);
-        let segment = b - a;
-        let len2 = segment.length_squared();
-        if len2 < 1.0e-10 {
-            return Err(format!("Zero-length bone: {}", joint.name));
-        }
-        let t = ((point - a).dot(segment) / len2).clamp(0.0, 1.0);
-        candidates.push((point.distance(a + t * segment), i as u16));
-    }
-    candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-    if candidates.len() < 4 {
-        return Err("Skeleton requires at least four non-root bones".to_owned());
-    }
-    let mut indices = [0u16; 4];
-    let mut weights = [0.0_f32; 4];
-    for (slot, (distance, joint)) in candidates.into_iter().take(4).enumerate() {
-        indices[slot] = joint;
-        weights[slot] = 1.0 / (distance + 0.045).powi(4);
-    }
-    let total: f32 = weights.iter().sum();
-    for weight in &mut weights { *weight /= total; }
-    Ok(VertexInfluence { joint_indices: indices, weights })
-}
-
+/// Generate the neutral procedural bind-pose geometry.
 pub fn generate(recipe: &Recipe) -> Result<Model, String> {
     generate_posed(recipe, PreviewPose::default())
 }
 
-/// Evaluate a temporary pose for geometry inspection. All skin weights are
-/// computed against the neutral reference, never a posed skeleton or surface.
+/// Proper hierarchical LBS: neutral geometry and its authored skin weights
+/// remain unchanged, while each joint receives pose-world × inverse-bind.
 pub fn generate_posed(recipe: &Recipe, pose: PreviewPose) -> Result<Model, String> {
     recipe.validate()?;
     pose.validate()?;
-    let neutral_surface = study::build(recipe, PreviewPose::default())?;
-    let rest_joints = study::skeleton(recipe, PreviewPose::default());
-    let influences = neutral_surface.vertices.iter()
-        .map(|&point| closest_influences(point, &rest_joints))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let surface = if pose.is_neutral() {
-        neutral_surface
-    } else {
-        study::build(recipe, pose)?
-    };
+    let mut study = study::build(recipe)?;
+    let rest_joints = study::skeleton(recipe);
+    let rotations = study::pose_rotations(pose);
+    let transforms = skinning::evaluate_joints(&rest_joints, &rotations)?;
     let joints = if pose.is_neutral() {
         rest_joints
     } else {
-        study::skeleton(recipe, pose)
+        skinning::posed_joints(&rest_joints, &transforms)?
     };
-    let normals = surface.normals();
+
+    if !pose.is_neutral() {
+        let mut positions = skinning::deform(
+            &study.surface.vertices, &study.weights, &transforms.skin
+        )?;
+        study::preserve_shoulder_volume(&study, &mut positions, &transforms.skin, pose)?;
+        study.surface.vertices = positions;
+        study.surface.validate_closed()?;
+    }
+    let normals = study.surface.normals();
     Ok(Model {
-        vertices: surface.vertices.iter().map(|p| p.to_array()).collect(),
+        vertices: study.surface.vertices.iter().map(|p| p.to_array()).collect(),
         normals,
-        quads: surface.quads,
-        triangles: surface.triangles,
-        caps: surface.caps,
+        quads: study.surface.quads,
+        triangles: study.surface.triangles,
+        caps: study.surface.caps,
         joints,
-        influences,
+        influences: study.weights,
     })
 }
 
@@ -271,40 +259,84 @@ mod tests {
     }
 
     #[test]
-    fn preview_pose_changes_positions_without_changing_topology_or_weights() {
+    fn one_arm_at_a_time_moves_only_its_own_shoulder_and_elbow() {
+        let recipe = Recipe::default();
+        let neutral = generate(&recipe).unwrap();
+        let l = generate_posed(&recipe, PreviewPose {
+            left: ArmPose { raise_deg: 60.0, forward_deg: 35.0 },
+            right: ArmPose::default(),
+        }).unwrap();
+        let r = generate_posed(&recipe, PreviewPose {
+            left: ArmPose::default(),
+            right: ArmPose { raise_deg: 60.0, forward_deg: 35.0 },
+        }).unwrap();
+        // [4,5,6] = left clavicle/shoulder/elbow, [7,8,9] right.
+        assert_ne!(l.joints[6].position, neutral.joints[6].position);
+        assert_eq!(l.joints[9].position, neutral.joints[9].position);
+        assert_eq!(r.joints[6].position, neutral.joints[6].position);
+        assert_ne!(r.joints[9].position, neutral.joints[9].position);
+        assert_eq!(l.vertices.len(), neutral.vertices.len());
+        assert_eq!(r.vertices.len(), neutral.vertices.len());
+    }
+
+    #[test]
+    fn skinning_preserves_connectivity_and_neutral_weights() {
         let recipe = Recipe::default();
         let neutral = generate(&recipe).unwrap();
         for pose in [
-            PreviewPose { arm_raise_deg: 45.0, arm_forward_deg: 0.0 },
-            PreviewPose { arm_raise_deg: 0.0, arm_forward_deg: 40.0 },
-            PreviewPose { arm_raise_deg: 65.0, arm_forward_deg: 45.0 },
+            PreviewPose {
+                left: ArmPose { raise_deg: 45.0, forward_deg: 0.0 },
+                right: ArmPose::default(),
+            },
+            PreviewPose {
+                left: ArmPose::default(),
+                right: ArmPose { raise_deg: 0.0, forward_deg: 40.0 },
+            },
+            PreviewPose {
+                left: ArmPose { raise_deg: 65.0, forward_deg: 45.0 },
+                right: ArmPose { raise_deg: 70.0, forward_deg: 55.0 },
+            },
         ] {
             let moved = generate_posed(&recipe, pose).unwrap();
             assert_eq!(moved.quads, neutral.quads);
             assert_eq!(moved.triangles, neutral.triangles);
-            assert_eq!(moved.influences.len(), neutral.influences.len());
+            assert_eq!(moved.joints.len(), neutral.joints.len());
             for (a, b) in moved.influences.iter().zip(neutral.influences.iter()) {
                 assert_eq!(a.joint_indices, b.joint_indices);
                 assert_eq!(a.weights, b.weights);
             }
             assert_ne!(moved.vertices, neutral.vertices);
-            assert_eq!(moved.joints.len(), neutral.joints.len());
             assert!(moved.vertices.iter().flatten().all(|x| x.is_finite()));
         }
     }
 
     #[test]
-    fn invalid_preview_pose_is_rejected_without_changing_recipe() {
+    fn invalid_independent_pose_is_rejected_without_changing_recipe() {
         let recipe = Recipe::default();
-        assert!(generate_posed(&recipe, PreviewPose {
-            arm_raise_deg: 120.0,
-            arm_forward_deg: 0.0,
-        }).is_err());
-        assert!(generate_posed(&recipe, PreviewPose {
-            arm_raise_deg: f32::NAN,
-            arm_forward_deg: 0.0,
-        }).is_err());
+        for invalid in [
+            PreviewPose {
+                left: ArmPose { raise_deg: 120.0, forward_deg: 0.0 },
+                right: ArmPose::default(),
+            },
+            PreviewPose {
+                left: ArmPose::default(),
+                right: ArmPose { raise_deg: f32::NAN, forward_deg: 0.0 },
+            },
+        ] {
+            assert!(generate_posed(&recipe, invalid).is_err());
+        }
         assert_eq!(recipe, Recipe::default());
+    }
+
+    #[test]
+    fn neutral_rig_exports_inverse_bind_matrices_for_all_joints() {
+        let model = generate(&Recipe::default()).unwrap();
+        let exported: serde_json::Value =
+            serde_json::from_str(&model.to_rig_json().unwrap()).unwrap();
+        assert_eq!(
+            exported["inverse_bind_matrices"].as_array().unwrap().len(),
+            model.joints.len()
+        );
     }
 
     #[test]
