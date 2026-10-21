@@ -486,6 +486,54 @@ mod tests {
         assert!(BUILD_CONTROLS.iter().any(|control| control.player_editable));
     }
 
+
+    #[test]
+    fn build_schema_is_portable_and_versioned() {
+        let json = controls::build_schema_json().unwrap();
+        let data: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(data["model_type"], "humanoid");
+        assert_eq!(data["schema_version"].as_u64(), Some(SCHEMA_VERSION as u64));
+        let controls = data["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), BUILD_CONTROLS.len());
+        for (entry, control) in controls.iter().zip(BUILD_CONTROLS.iter()) {
+            assert_eq!(entry["id"].as_str(), Some(control.id));
+            assert_eq!(entry["section"].as_str(), Some(control.section.id()));
+            assert_eq!(entry["player_editable"].as_bool(), Some(control.player_editable));
+        }
+    }
+
+    #[test]
+    fn morphology_recipe_round_trip_and_limits() {
+        let mut recipe = Recipe::default();
+        recipe.morphology.chest_width = 1.18;
+        recipe.morphology.waist_width = 0.88;
+        recipe.morphology.hand_size = 1.13;
+        recipe.morphology.stance_width = 1.12;
+        let saved = recipe.to_json().unwrap();
+        assert_eq!(Recipe::from_json(&saved).unwrap(), recipe);
+        assert!(saved.contains("\\"morphology\\""));
+        recipe.morphology.chest_width = f32::NAN;
+        assert!(recipe.validate().is_err());
+        recipe.morphology.chest_width = 4.0;
+        assert!(recipe.validate().is_err());
+    }
+
+    #[test]
+    fn combined_parameter_extremes_keep_positions_and_indices_finite() {
+        for use_max in [false, true] {
+            let mut recipe = Recipe::default();
+            for control in BUILD_CONTROLS {
+                control.set(&mut recipe, if use_max { control.max } else { control.min });
+            }
+            let model = generate(&recipe).unwrap();
+            assert_eq!(model.joints.len(), 19);
+            assert!(model.vertices.iter().flatten().all(|value| value.is_finite()));
+            assert!(model.joints.iter().flat_map(|joint| joint.position).all(|value| value.is_finite()));
+            assert!(model.triangles.iter().flatten().all(|&index| (index as usize) < model.vertices.len()));
+            assert_eq!(model.vertices.len(), model.influences.len());
+        }
+    }
+
     #[test]
     fn generator_is_deterministic() {
         let recipe = Recipe::default();
