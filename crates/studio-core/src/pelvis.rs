@@ -471,8 +471,15 @@ mod tests {
         // special pelvis quads are at indices 39 and 72.
         for index in [39_usize, 72_usize] {
             let [a, b, c, d] = builder.quads[index];
-            let triangles = &builder.triangles[2 * index..2 * index + 2];
-            assert_eq!(triangles, &[[a, b, d], [b, c, d]]);
+            // Temporary neck and knee caps are interleaved with the quad
+            // render triangles, so locate the authored adjacent pair rather
+            // than incorrectly assuming triangle_index == 2 * quad_index.
+            assert!(
+                builder.triangles.windows(2).any(|pair| {
+                    pair == [[a, b, d], [b, c, d]]
+                }),
+                "Corner quad {index} did not retain its fixed diagonal"
+            );
             let va = builder.vertices[a as usize];
             let vb = builder.vertices[b as usize];
             let vc = builder.vertices[c as usize];
