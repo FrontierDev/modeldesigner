@@ -689,7 +689,7 @@ mod tests {
         let current_rig: serde_json::Value = serde_json::from_str(&current.to_rig_json().unwrap()).unwrap();
         assert_eq!(current_rig["generator_version"].as_u64(), Some(3));
         assert_eq!(current.joints.len(), 21);
-        assert!(current.triangles.len() < 30_000, "v3 exceeds triangle budget: {}", current.triangles.len());
+        assert!(current.triangles.len() < 26_000, "v3 exceeds triangle budget: {}", current.triangles.len());
         assert_ne!(legacy.triangles.len(), current.triangles.len());
         assert_eq!(current.normals.len(), current.vertices.len());
         assert!(current.normals.iter().flatten().all(|c| c.is_finite()));
