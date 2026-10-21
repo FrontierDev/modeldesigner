@@ -608,6 +608,9 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         weight_regions.push((cap_index, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
     }
     let lower_body = pelvis::append(&mut mesh, &rings[0], crotch_centre, recipe)?;
+    if lower_body.leg_rings.iter().any(|rings| rings.len() != 4) {
+        return Err("Upper-leg construction did not produce four anatomical rings".into());
+    }
     fair_upper_shoulder(&mut mesh, m)?;
     let surface = mesh.build()?;
     let mut weights = vec![influence(2, 1.0, 0, 0.0, 0, 0.0); surface.vertices.len()];

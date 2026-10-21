@@ -270,6 +270,51 @@ mod tests {
     }
 
     #[test]
+    fn a_single_torso_boundary_branches_into_two_closed_thighs() {
+        let reference = Recipe::default();
+        for (hip, girth, tilt, glutes, legs, stance) in [
+            (1.0, 1.0, 0.5, 0.5, 1.0, 1.0),
+            (0.8, 1.4, 0.0, 0.0, 0.82, 0.8),
+            (1.25, 0.7, 1.0, 1.0, 1.18, 1.2),
+            (1.25, 1.4, 0.5, 1.0, 1.0, 1.0),
+        ] {
+            let mut recipe = reference.clone();
+            recipe.morphology.hip_width = hip;
+            recipe.morphology.thigh_girth = girth;
+            recipe.morphology.pelvis_tilt = tilt;
+            recipe.morphology.glute_volume = glutes;
+            recipe.leg_length = legs;
+            recipe.morphology.stance_width = stance;
+            let mut mesh = MeshBuilder::default();
+            let scale = recipe.height / 1.75;
+            let lower = mesh.loop_vertices((0..32).map(|i| {
+                let angle = TAU * i as f32 / 32.0;
+                Vec3::new(angle.sin() * 0.144 * scale,
+                    0.78 * scale, angle.cos() * 0.105 * scale)
+            }));
+            let upper = mesh.loop_vertices((0..32).map(|i| {
+                let angle = TAU * i as f32 / 32.0;
+                Vec3::new(angle.sin() * 0.173 * scale,
+                    0.86 * scale, angle.cos() * 0.130 * scale)
+            }));
+            mesh.stitch(&lower, &upper).unwrap();
+            let crotch = mesh.vertex(Vec3::ZERO);
+            mesh.cap(&upper, Vec3::new(0.0, 0.86 * scale, 0.0), false).unwrap();
+            let lower_body = append(&mut mesh, &lower, crotch, &recipe).unwrap();
+            assert_eq!(lower_body.leg_rings.len(), 2);
+            assert!(lower_body.leg_rings.iter().all(|r| {
+                r.len() == 4 && r.iter().all(|loop_ids| loop_ids.len() == 12)
+            }));
+            let result = mesh.build().unwrap();
+            assert!(result.vertices.iter().all(|vertex| vertex.is_finite()));
+            assert_eq!(result.caps.len(), 32 + 24);
+            assert!(lower_body.influences.iter().all(|(_, info)| {
+                (info.weights.iter().sum::<f32>() - 1.0).abs() < 1e-5
+            }));
+        }
+    }
+
+    #[test]
     fn hip_width_and_stance_affect_hip_knee_landmarks() {
         let neutral = Recipe::default();
         let mut broad = neutral.clone();

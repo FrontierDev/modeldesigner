@@ -25,7 +25,7 @@ struct Camera {
 
 impl Camera {
     fn framed(height: f32) -> Self {
-        Self { yaw: 0.48, pitch: 0.12, distance: height * 1.25, target: Vec3::Y * (height * 0.70) }
+        Self { yaw: 0.48, pitch: 0.12, distance: height * 1.45, target: Vec3::Y * (height * 0.57) }
     }
 
     fn basis(&self) -> Basis {

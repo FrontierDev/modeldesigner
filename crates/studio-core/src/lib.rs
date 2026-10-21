@@ -350,6 +350,26 @@ mod tests {
     }
 
     #[test]
+    fn pelvis_and_thigh_controls_keep_shared_manifold_topology() {
+        let default = generate(&Recipe::default()).unwrap();
+        assert_eq!(default.vertices.len(), 758);
+        assert_eq!(default.quads.len(), 688);
+        assert_eq!(default.triangles.len(), 1464);
+        assert_eq!(default.joints.len(), 14);
+        for control in BUILD_CONTROLS.iter().copied().filter(|c| c.implemented()
+            && matches!(c.section, BuildSection::Pelvis | BuildSection::Legs))
+        {
+            let mut edited = Recipe::default();
+            control.set(&mut edited, control.max);
+            let mesh = generate(&edited).unwrap();
+            assert_eq!(mesh.quads, default.quads, "{}", control.id);
+            assert_eq!(mesh.triangles, default.triangles, "{}", control.id);
+            assert_ne!(mesh.vertices, default.vertices, "{}", control.id);
+            assert!(mesh.vertices.iter().flatten().all(|v| v.is_finite()));
+        }
+    }
+
+    #[test]
     fn one_arm_at_a_time_moves_only_its_own_shoulder_and_elbow() {
         let recipe = Recipe::default();
         let neutral = generate(&recipe).unwrap();
