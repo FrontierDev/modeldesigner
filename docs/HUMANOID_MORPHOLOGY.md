@@ -2,7 +2,7 @@
 
 ## Scope
 
-The humanoid uses one deterministic reference surface and one 19-joint rest skeleton. This milestone extends the six original controls to **30**, keeps original values and serialized keys unchanged, and adds an optional `morphology` object with 24 new parameters. A legacy recipe missing that object uses neutral defaults. Its `schema_version` and `generator_version` remain `1`.
+The humanoid uses one deterministic reference surface **per generator version** and one 19-joint rest skeleton. This milestone extends the six original controls to **30**, keeps original values and serialized keys unchanged, and adds an optional `morphology` object with 24 new parameters. A legacy recipe missing that object uses neutral defaults. Its `schema_version` remains `1`. New recipes default to generator `2`; saved generator `1` recipes continue to use their original reference mesh.
 
 ## Parameter sections
 
@@ -25,7 +25,7 @@ Player mode presents a curated subset. Advanced mode presents all 30 without cha
 
 ## Mesh and joint behavior
 
-- The canonical reference mesh is constructed once. Morphology only adjusts existing vertex positions; triangle indices and vertex counts are stable.
+- Each versioned canonical reference mesh is constructed once. Morphology only adjusts existing vertex positions; triangle indices and vertex counts are stable.
 - Structural shape adjustments (torso length, neck length, shoulder slope, hip width, pelvis tilt and stance width) also move skeletal rest landmarks.
 - Other sliders apply localized symmetric surface offsets around anatomical regions. No automatic re-topology or animation-corrective skinning is performed.
 - Initial nearest-segment skin weights still refer to the existing 19-joint hierarchy and are not automatically optimized for new body shapes.
