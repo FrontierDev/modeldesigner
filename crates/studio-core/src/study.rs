@@ -290,6 +290,43 @@ pub fn preserve_shoulder_volume(
     Ok(())
 }
 
+/// Round the four logical corners of the torso opening before stitching its
+/// existing boundary vertices to the deltoid loops. Keeping the X coordinates
+/// on the original torso contour avoids gaps between the chest faces and rim.
+fn soften_socket_boundary(builder: &mut MeshBuilder, rim: &[u32]) {
+    let points: Vec<Vec3> = rim.iter().map(|&id| builder.vertices[id as usize]).collect();
+    let n = points.len();
+    for (i, &id) in rim.iter().enumerate() {
+        let adjacent = (points[(i + n - 1) % n] + points[(i + 1) % n]) * 0.5;
+        let mut position = points[i];
+        position.y = position.y.lerp(adjacent.y, 0.30);
+        position.z = position.z.lerp(adjacent.z, 0.30);
+        builder.vertices[id as usize] = position;
+    }
+}
+
+/// Shoulder rings must advance *outward* at every matching vertex. Previously
+/// the innermost ellipse points extended as much as 38 mm inside the torso-hole
+/// rim, folding the intervening quads back on themselves. This constraint is
+/// part of the procedural surface construction, not a post-pose skinning fix.
+fn advance_socket_loop(
+    builder: &mut MeshBuilder,
+    from: &[u32],
+    to: &[u32],
+    side: f32,
+    minimum_step: f32,
+) -> Result<(), String> {
+    if from.len() != to.len() || from.len() < 3 {
+        return Err("Shoulder loops require equal-sized boundaries".into());
+    }
+    for (&source, &target) in from.iter().zip(to) {
+        let old = builder.vertices[source as usize];
+        let point = &mut builder.vertices[target as usize];
+        point.x = side * (side * point.x).max(side * old.x + minimum_step);
+    }
+    Ok(())
+}
+
 fn arm_ring(
     builder: &mut MeshBuilder,
     hole: &[u32],
@@ -345,6 +382,7 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         (-1.0_f32, 24_usize, 4_u16, 5_u16),
     ] {
         let hole = boundary(&rings, centre_column);
+        soften_socket_boundary(&mut mesh, &hole);
         let hole_centre = hole.iter().map(|&id| mesh.vertices[id as usize]).sum::<Vec3>()
             / hole.len() as f32;
         let shoulder = m.shoulder_centre(side);
@@ -355,18 +393,21 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         let transition = arm_ring(&mut mesh, &hole, transition_centre, axis,
             0.090 * m.upper_arm_girth * m.height,
             0.078 * m.upper_arm_girth * m.height);
+        advance_socket_loop(&mut mesh, &hole, &transition, side, 0.028 * m.height)?;
         mesh.stitch(&hole, &transition)?;
 
         let deltoid_centre = shoulder;
         let deltoid = arm_ring(&mut mesh, &hole, deltoid_centre, axis,
             0.079 * m.upper_arm_girth * m.height,
             0.072 * m.upper_arm_girth * m.height);
+        advance_socket_loop(&mut mesh, &transition, &deltoid, side, 0.016 * m.height)?;
         mesh.stitch(&transition, &deltoid)?;
 
         let insertion_centre = shoulder.lerp(elbow, 0.24);
         let insertion = arm_ring(&mut mesh, &hole, insertion_centre, axis,
             0.070 * m.upper_arm_girth * m.height,
             0.063 * m.upper_arm_girth * m.height);
+        advance_socket_loop(&mut mesh, &deltoid, &insertion, side, 0.008 * m.height)?;
         mesh.stitch(&deltoid, &insertion)?;
 
         let mid = arm_ring(&mut mesh, &hole, shoulder.lerp(elbow, 0.55), axis,
@@ -510,6 +551,73 @@ mod tests {
         assert_eq!(baseline.surface.quads, edited.surface.quads);
         assert_eq!(baseline.surface.triangles, edited.surface.triangles);
         assert_ne!(baseline.surface.vertices, edited.surface.vertices);
+    }
+
+    #[test]
+    fn shoulder_socket_loops_never_fold_back_into_the_torso() {
+        let result = build(&Recipe::default()).unwrap();
+        // Per side: 16 vertices on the existing torso boundary followed by
+        // five consecutively stitched 16-vertex loops.
+        let mut builder = MeshBuilder::default();
+        let m = Measurements::from(&Recipe::default());
+        let mut torso = Vec::new();
+        for row in 0..TORSO_SECTIONS.len() {
+            torso.push(builder.loop_vertices(
+                (0..RING_SIDES).map(|column| m.torso_point(row, column))
+            ));
+        }
+        for (side, column, first) in [(1.0_f32, 8_usize, 418_usize), (-1.0, 24, 499)] {
+            let rim = boundary(&torso, column);
+            let mut previous = rim;
+            for (stage, gap) in [0.028_f32, 0.016, 0.008].into_iter().enumerate() {
+                let next: Vec<u32> = (first + stage * 16..first + (stage + 1) * 16)
+                    .map(|id| id as u32).collect();
+                for (&from, &to) in previous.iter().zip(&next) {
+                    let advance = side * (
+                        result.surface.vertices[to as usize].x
+                            - result.surface.vertices[from as usize].x
+                    );
+                    assert!(
+                        advance >= gap - 1.0e-5,
+                        "socket stage {stage} reversed its lateral direction: {advance}"
+                    );
+                }
+                previous = next;
+            }
+        }
+    }
+
+    #[test]
+    fn neutral_shoulder_has_no_back_facing_fold_at_socket_seam() {
+        use std::collections::HashMap;
+        let result = build(&Recipe::default()).unwrap();
+        let mesh = result.surface;
+        let mut edges = HashMap::<(u32, u32), Vec<Vec3>>::new();
+        for &[a, b, c] in &mesh.triangles {
+            let normal = (mesh.vertices[b as usize] - mesh.vertices[a as usize])
+                .cross(mesh.vertices[c as usize] - mesh.vertices[a as usize])
+                .normalize();
+            for (from, to) in [(a, b), (b, c), (c, a)] {
+                edges.entry((from.min(to), from.max(to)))
+                    .or_default().push(normal);
+            }
+        }
+        let mut inspected = 0;
+        for ((a, b), normals) in edges {
+            if normals.len() != 2 { continue; }
+            let middle = (mesh.vertices[a as usize] + mesh.vertices[b as usize]) * 0.5;
+            if middle.x.abs() <= 0.14 || middle.x.abs() >= 0.36
+                || middle.y <= 1.20 || middle.y >= 1.50
+            {
+                continue;
+            }
+            inspected += 1;
+            assert!(
+                normals[0].dot(normals[1]) > -0.45,
+                "folded shoulder geometry near {middle:?}"
+            );
+        }
+        assert!(inspected > 40, "shoulder seam was not inspected");
     }
 
     #[test]
