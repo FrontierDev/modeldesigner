@@ -513,6 +513,36 @@ mod tests {
     }
 
     #[test]
+    fn clavicle_pivot_is_medial_to_shoulder() {
+        let joints = skeleton(&Recipe::default());
+        for (clavicle, shoulder) in [(4, 5), (7, 8)] {
+            let medial = Vec3::from_array(joints[clavicle].position);
+            let lateral = Vec3::from_array(joints[shoulder].position);
+            assert!(medial.x.abs() < 0.45 * lateral.x.abs());
+            assert!(medial.y > lateral.y);
+        }
+    }
+
+    #[test]
+    fn axillary_and_deltoid_weights_have_opposing_gradients() {
+        let baseline = influence(2, 0.28, 4, 0.36, 5, 0.36);
+        let upper = anatomical_ring_weights(1, &baseline, 1.0, 0.0);
+        let axilla = anatomical_ring_weights(1, &baseline, -1.0, 1.0);
+        assert!(upper.weights[2] > baseline.weights[2]);
+        assert!(axilla.weights[0] > baseline.weights[0]);
+        for weights in [upper, axilla] {
+            assert!((weights.weights.iter().sum::<f32>() - 1.0).abs() < 1e-5);
+            assert!(weights.weights.iter().all(|weight| *weight >= 0.0));
+        }
+        let baseline = influence(2, 1.0, 0, 0.0, 0, 0.0);
+        let seam = torso_shoulder_weights(8, 8, baseline.clone());
+        let centre_chest = torso_shoulder_weights(8, 16, baseline);
+        assert!(seam.weights[1] > 0.0);
+        assert!(seam.weights[2] > 0.0);
+        assert_eq!(centre_chest.weights[0], 1.0);
+    }
+
+    #[test]
     fn left_and_right_pose_rotations_are_independent() {
         let pose = PreviewPose {
             left: ArmPose { raise_deg: 60.0, forward_deg: 0.0 },
