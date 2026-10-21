@@ -4,7 +4,7 @@
 //! generic topology engine can build a branching, closed quad surface with
 //! anatomical controls and no imported base mesh or implicit field.
 
-use crate::{Joint, PreviewPose, Recipe};
+use crate::{ArmPose, Joint, PreviewPose, Recipe, VertexInfluence};
 use crate::mesh::{MeshBuilder, SurfaceMesh};
 use glam::{Quat, Vec3};
 use std::f32::consts::TAU;
@@ -140,16 +140,49 @@ fn boundary(rings: &[Vec<u32>], centre_column: usize) -> Vec<u32> {
     result
 }
 
-/// A test pose pivots the upper arm about its humeral head. Blending the
-/// rotation over two shoulder loops keeps the sewn torso seam stationary.
-fn arm_rotation(side: f32, pose: PreviewPose) -> Quat {
-    let raise = Quat::from_rotation_z(side * pose.arm_raise_deg.to_radians());
-    let forward = Quat::from_rotation_y(-side * pose.arm_forward_deg.to_radians());
+/// Rig-space rotation from neutral A-pose for the selected side.
+fn arm_rotation(side: f32, pose: ArmPose) -> Quat {
+    let raise = Quat::from_rotation_z(side * pose.raise_deg.to_radians());
+    let forward = Quat::from_rotation_y(-side * pose.forward_deg.to_radians());
     forward * raise
 }
 
-fn pose_vertex(rest: Vec3, shoulder: Vec3, rotation: Quat, weight: f32) -> Vec3 {
-    shoulder + Quat::IDENTITY.slerp(rotation, weight) * (rest - shoulder)
+/// Per-joint local rotations for the clavicle and humerus. World transforms,
+/// inverse bind matrices and child propagation are evaluated by skinning.rs.
+pub fn pose_rotations(pose: PreviewPose) -> [Quat; 10] {
+    let mut rotations = [Quat::IDENTITY; 10];
+    for (side, clavicle, shoulder, arm) in [
+        (-1.0_f32, 4_usize, 5_usize, pose.left),
+        ( 1.0_f32, 7_usize, 8_usize, pose.right),
+    ] {
+        let rotation = arm_rotation(side, arm);
+        rotations[clavicle] = Quat::IDENTITY.slerp(rotation, 0.12);
+        rotations[shoulder] = Quat::IDENTITY.slerp(rotation, 0.88);
+    }
+    rotations
+}
+
+/// Skin influences are assigned by the topology authoring stage rather than
+/// found by nearest-bone distances, particularly at the axillary junction.
+fn influence(a: u16, wa: f32, b: u16, wb: f32, c: u16, wc: f32) -> VertexInfluence {
+    VertexInfluence {
+        joint_indices: [a, b, c, 0],
+        weights: [wa, wb, wc, 0.0],
+    }
+}
+
+pub struct ShoulderRing {
+    pub vertices: Vec<u32>,
+    pub centre: Vec3,
+    pub region_weights: VertexInfluence,
+    pub strength: f32,
+    pub side: f32,
+}
+
+pub struct BuiltStudy {
+    pub surface: SurfaceMesh,
+    pub weights: Vec<VertexInfluence>,
+    pub corrective_rings: Vec<ShoulderRing>,
 }
 
 fn arm_ring(
@@ -159,9 +192,6 @@ fn arm_ring(
     axis: Vec3,
     radius_y: f32,
     radius_z: f32,
-    shoulder: Vec3,
-    rotation: Quat,
-    pose_weight: f32,
 ) -> Vec<u32> {
     // The ellipse plane is perpendicular to the arm. We preserve correspondence
     // between the torso-hole boundary and every subsequent anatomical loop.
@@ -174,12 +204,11 @@ fn arm_ring(
         (offset.dot(front) / 0.065).atan2(offset.dot(up) / 0.085)
     }).collect();
     builder.loop_vertices(angles.into_iter().map(|angle| {
-        let rest = centre + up * (angle.cos() * radius_y) + front * (angle.sin() * radius_z);
-        pose_vertex(rest, shoulder, rotation, pose_weight)
+        centre + up * (angle.cos() * radius_y) + front * (angle.sin() * radius_z)
     }))
 }
 
-pub fn build(recipe: &Recipe, pose: PreviewPose) -> Result<SurfaceMesh, String> {
+pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
     let m = Measurements::from(recipe);
     let mut mesh = MeshBuilder::default();
     let mut rings = Vec::new();
@@ -202,57 +231,105 @@ pub fn build(recipe: &Recipe, pose: PreviewPose) -> Result<SurfaceMesh, String> 
     mesh.cap(&rings[rings.len() - 1],
         Vec3::new(0.0, m.y(TORSO_SECTIONS[TORSO_SECTIONS.len() - 1].0), 0.0), false)?;
 
-    for (side, centre_column) in [(1.0_f32, 8_usize), (-1.0_f32, 24_usize)] {
+    // Tag each topology ring with authored joint influences.
+    let torso_count = mesh.vertices.len();
+    let mut weight_regions: Vec<(Vec<u32>, VertexInfluence)> = Vec::new();
+    let mut correction_regions = Vec::new();
+    for (side, centre_column, clavicle, shoulder_joint) in [
+        ( 1.0_f32, 8_usize, 7_u16, 8_u16),
+        (-1.0_f32, 24_usize, 4_u16, 5_u16),
+    ] {
         let hole = boundary(&rings, centre_column);
         let hole_centre = hole.iter().map(|&id| mesh.vertices[id as usize]).sum::<Vec3>()
             / hole.len() as f32;
         let shoulder = m.shoulder_centre(side);
         let elbow = m.elbow(side);
         let axis = (elbow - shoulder).normalize();
-        let rotation = arm_rotation(side, pose);
-        // Two shoulder transition loops allow the pectoral/axillary boundary
-        // to settle into a deltoid loop without pulling its shared torso rim.
+
         let transition_centre = hole_centre.lerp(shoulder, 0.44);
         let transition = arm_ring(&mut mesh, &hole, transition_centre, axis,
             0.090 * m.upper_arm_girth * m.height,
-            0.078 * m.upper_arm_girth * m.height,
-            shoulder, rotation, 0.15);
+            0.078 * m.upper_arm_girth * m.height);
         mesh.stitch(&hole, &transition)?;
 
-        let deltoid = arm_ring(&mut mesh, &hole, shoulder, axis,
+        let deltoid_centre = shoulder;
+        let deltoid = arm_ring(&mut mesh, &hole, deltoid_centre, axis,
             0.079 * m.upper_arm_girth * m.height,
-            0.072 * m.upper_arm_girth * m.height,
-            shoulder, rotation, 0.50);
+            0.072 * m.upper_arm_girth * m.height);
         mesh.stitch(&transition, &deltoid)?;
 
-        let insertion = arm_ring(&mut mesh, &hole, shoulder.lerp(elbow, 0.24), axis,
+        let insertion_centre = shoulder.lerp(elbow, 0.24);
+        let insertion = arm_ring(&mut mesh, &hole, insertion_centre, axis,
             0.070 * m.upper_arm_girth * m.height,
-            0.063 * m.upper_arm_girth * m.height,
-            shoulder, rotation, 0.85);
+            0.063 * m.upper_arm_girth * m.height);
         mesh.stitch(&deltoid, &insertion)?;
 
         let mid = arm_ring(&mut mesh, &hole, shoulder.lerp(elbow, 0.55), axis,
             0.062 * m.upper_arm_girth * m.height,
-            0.056 * m.upper_arm_girth * m.height,
-            shoulder, rotation, 1.0);
+            0.056 * m.upper_arm_girth * m.height);
         mesh.stitch(&insertion, &mid)?;
 
         let elbow_loop = arm_ring(&mut mesh, &hole, elbow, axis,
             0.052 * m.upper_arm_girth * m.height,
-            0.050 * m.upper_arm_girth * m.height,
-            shoulder, rotation, 1.0);
+            0.050 * m.upper_arm_girth * m.height);
         mesh.stitch(&mid, &elbow_loop)?;
-        let cap_centre = pose_vertex(elbow + axis * 0.004 * m.height, shoulder, rotation, 1.0);
-        mesh.cap(&elbow_loop, cap_centre, false)?;
+
+        let cap_index = mesh.vertices.len() as u32;
+        mesh.cap(&elbow_loop, elbow + axis * 0.004 * m.height, false)?;
+
+        for (indices, centre, weights, strength) in [
+            (transition, transition_centre, influence(2, 0.78, clavicle, 0.17, shoulder_joint, 0.05), 0.75),
+            (deltoid, deltoid_centre, influence(2, 0.28, clavicle, 0.36, shoulder_joint, 0.36), 1.0),
+            (insertion, insertion_centre, influence(2, 0.0, clavicle, 0.12, shoulder_joint, 0.88), 0.5),
+            (mid, shoulder.lerp(elbow, 0.55), influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0), 0.0),
+            (elbow_loop, elbow, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0), 0.0),
+        ] {
+            correction_regions.push(ShoulderRing {
+                vertices: indices.clone(), centre,
+                region_weights: weights.clone(), strength, side,
+            });
+            weight_regions.push((indices, weights));
+        }
+        weight_regions.push((vec![cap_index], influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
     }
-    mesh.build()
+    let surface = mesh.build()?;
+    let mut weights = vec![influence(2, 1.0, 0, 0.0, 0, 0.0); surface.vertices.len()];
+    // Torso cross-sections use non-rotating pelvis/spine/chest bind influences;
+    // shoulder-hole edges stay fixed on the chest during shoulder motion.
+    for (row, ring) in rings.iter().enumerate() {
+        let torso_weights = if row <= 2 {
+            influence(0, 0.70, 1, 0.30, 2, 0.0)
+        } else if row <= 5 {
+            influence(0, 0.05, 1, 0.55, 2, 0.40)
+        } else {
+            influence(2, 1.0, 0, 0.0, 0, 0.0)
+        };
+        for &id in ring {
+            weights[id as usize] = torso_weights.clone();
+        }
+    }
+    // The torso end caps follow their nearest structural joints.
+    for index in RING_SIDES * TORSO_SECTIONS.len()..torso_count {
+        weights[index] = if index == RING_SIDES * TORSO_SECTIONS.len() {
+            influence(0, 1.0, 0, 0.0, 0, 0.0)
+        } else {
+            influence(3, 1.0, 0, 0.0, 0, 0.0)
+        };
+    }
+    for (ids, region_weights) in weight_regions {
+        for id in ids {
+            weights[id as usize] = region_weights.clone();
+        }
+    }
+    Ok(BuiltStudy { surface, weights, corrective_rings: correction_regions })
+
 }
 
 fn append_joint(joints: &mut Vec<Joint>, name: &'static str, parent: Option<usize>, point: Vec3) {
     joints.push(Joint { name, parent, position: point.to_array() });
 }
 
-pub fn skeleton(recipe: &Recipe, pose: PreviewPose) -> Vec<Joint> {
+pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
     let m = Measurements::from(recipe);
     let mut joints = Vec::<Joint>::new();
     append_joint(&mut joints, "pelvis", None, Vec3::new(0.0, m.y(0.84), 0.0));
@@ -278,8 +355,7 @@ pub fn skeleton(recipe: &Recipe, pose: PreviewPose) -> Vec<Joint> {
         append_joint(
             &mut joints,
             if side < 0.0 { "left_elbow" } else { "right_elbow" },
-            Some(shoulder_index),
-            pose_vertex(m.elbow(side), shoulder, arm_rotation(side, pose), 1.0),
+            Some(shoulder_index), m.elbow(side),
         );
     }
     joints
@@ -290,44 +366,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn neutral_study_is_closed_and_uses_connected_shoulder_loops() {
-        let model = build(&Recipe::default(), PreviewPose::default()).unwrap();
-        assert_eq!(model.vertices.len(), 580);
-        assert_eq!(model.quads.len(), 512);
-        assert_eq!(model.triangles.len(), 1120);
-        assert!(model.quads.len() > 100 + 2 * SHOULDER_BLEND_RINGS * 16);
-        assert_eq!(skeleton(&Recipe::default(), PreviewPose::default()).len(), 10);
-    }
-
-    #[test]
-    fn posing_preserves_indices_and_keeps_stitched_seams_closed() {
-        let recipe = Recipe::default();
-        let rest = build(&recipe, PreviewPose::default()).unwrap();
-        for pose in [
-            PreviewPose { arm_raise_deg: 45.0, arm_forward_deg: 0.0 },
-            PreviewPose { arm_raise_deg: 0.0, arm_forward_deg: 40.0 },
-            PreviewPose { arm_raise_deg: 65.0, arm_forward_deg: 45.0 },
-        ] {
-            let posed = build(&recipe, pose).unwrap();
-            assert_eq!(posed.quads, rest.quads);
-            assert_eq!(posed.triangles, rest.triangles);
-            assert_ne!(posed.vertices, rest.vertices);
-            let joints = skeleton(&recipe, pose);
-            assert_eq!(joints.len(), 10);
-            assert!(joints.iter().all(|joint| joint.position.iter().all(|value| value.is_finite())));
+    fn neutral_study_is_closed_and_authors_per_ring_skin_weights() {
+        let result = build(&Recipe::default()).unwrap();
+        assert_eq!(result.surface.vertices.len(), 580);
+        assert_eq!(result.surface.quads.len(), 512);
+        assert_eq!(result.surface.triangles.len(), 1120);
+        assert_eq!(result.weights.len(), result.surface.vertices.len());
+        assert_eq!(result.corrective_rings.len(), 10);
+        assert_eq!(skeleton(&Recipe::default()).len(), 10);
+        for influence in &result.weights {
+            let total: f32 = influence.weights.iter().sum();
+            assert!((total - 1.0).abs() < 1e-5);
         }
     }
 
     #[test]
-    fn supported_parameters_preserve_face_indexing() {
-        let baseline = build(&Recipe::default(), PreviewPose::default()).unwrap();
+    fn supported_parameters_preserve_topology() {
+        let baseline = build(&Recipe::default()).unwrap();
         let mut modified = Recipe::default();
         modified.shoulder_width = 0.60;
         modified.morphology.chest_width = 1.2;
         modified.morphology.upper_arm_girth = 1.3;
-        let edited = build(&modified, PreviewPose::default()).unwrap();
-        assert_eq!(baseline.quads, edited.quads);
-        assert_eq!(baseline.triangles, edited.triangles);
-        assert_ne!(baseline.vertices, edited.vertices);
+        let edited = build(&modified).unwrap();
+        assert_eq!(baseline.surface.quads, edited.surface.quads);
+        assert_eq!(baseline.surface.triangles, edited.surface.triangles);
+        assert_ne!(baseline.surface.vertices, edited.surface.vertices);
+    }
+
+    #[test]
+    fn left_and_right_pose_rotations_are_independent() {
+        let pose = PreviewPose {
+            left: ArmPose { raise_deg: 60.0, forward_deg: 0.0 },
+            right: ArmPose::default(),
+        };
+        let rotations = pose_rotations(pose);
+        assert_ne!(rotations[5], Quat::IDENTITY);
+        assert_eq!(rotations[8], Quat::IDENTITY);
+        assert_eq!(rotations[7], Quat::IDENTITY);
     }
 }
