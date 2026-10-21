@@ -6,10 +6,9 @@
 use crate::mesh::MeshBuilder;
 use crate::{Recipe, VertexInfluence};
 use glam::Vec3;
-use std::f32::consts::TAU;
 
 const GRID: usize = 8;
-const GRID_POSITIONS: [f32; 9] = [0.0, 0.08, 0.24, 0.42, 0.50, 0.58, 0.76, 0.92, 1.0];
+const GRID_POSITIONS: [f32; 9] = [0.0, 0.04, 0.17, 0.44, 0.50, 0.56, 0.83, 0.96, 1.0];
 const DEPTH_POSITIONS: [f32; 9] = [0.0, 0.07, 0.20, 0.34, 0.50, 0.66, 0.80, 0.93, 1.0];
 const THIGH_RING_COUNT: usize = 12;
 
@@ -43,23 +42,6 @@ impl From<&Recipe> for PelvisDimensions {
 impl PelvisDimensions {
     fn y(self, value: f32) -> f32 {
         (0.78 + (value - 0.78) * self.torso_length) * self.scale
-    }
-
-    fn outer_point(self, column: usize) -> Vec3 {
-        let angle = TAU * column as f32 / 32.0;
-        let sin = angle.sin();
-        let cos = angle.cos();
-        let posterior = (-cos).max(0.0);
-        let width = 0.183 * self.hip_width * self.scale
-            * (1.0 + 0.12 * (self.body_mass - 0.5));
-        let depth = (0.145
-            + 0.056 * (self.glute_volume - 0.5) * posterior)
-            * self.scale;
-        Vec3::new(
-            sin * width,
-            self.y(0.665) + 0.032 * (self.pelvis_tilt - 0.5) * cos * self.scale,
-            cos * depth,
-        )
     }
 
     fn hip(self, side: f32) -> Vec3 {
@@ -107,7 +89,7 @@ fn outside_index(i: usize, j: usize) -> Option<usize> {
     None
 }
 
-fn coons_position(i: usize, j: usize, outside: &[Vec3; 32]) -> Vec3 {
+fn coons_position(i: usize, j: usize, outside: &[Vec3; 32], dims: PelvisDimensions) -> Vec3 {
     let u = GRID_POSITIONS[i];
     let v = DEPTH_POSITIONS[j];
     let boundary = |i, j| outside[outside_index(i, j).expect("outer grid point")];
@@ -119,8 +101,16 @@ fn coons_position(i: usize, j: usize, outside: &[Vec3; 32]) -> Vec3 {
         + boundary(GRID, 0) * (u * (1.0 - v))
         + boundary(0, GRID) * ((1.0 - u) * v)
         + boundary(GRID, GRID) * (u * v);
-    left * (1.0 - u) + right * u
-        + back * (1.0 - v) + front * v - corners
+    let mut point = left * (1.0 - u) + right * u
+        + back * (1.0 - v) + front * v - corners;
+    // Sag the *interior* of the pelvis down into the perineal bridge.
+    // The outside boundary stays exactly on the existing torso mesh;
+    // an elevated flat underside made the thigh roots look detached.
+    let width = 0.159 * dims.hip_width * dims.scale;
+    let centre_weight = (1.0 - (point.x.abs() / width).min(1.0)).powf(1.3);
+    let depth_weight = (std::f32::consts::PI * v).sin().max(0.0).powf(1.4);
+    point.y -= 0.095 * dims.scale * centre_weight * depth_weight;
+    point
 }
 
 fn thigh_hole(grid: &[[u32; 9]; 9], start: usize) -> Vec<u32> {
@@ -139,9 +129,9 @@ fn is_hole_cell(i: usize, j: usize) -> bool {
         || (5..7).contains(&i) && (2..6).contains(&j)
 }
 
-/// Extend an unclosed torso bottom ring into one manifold surface with two
-/// upper legs. `crotch_id` is an already reserved original torso vertex, so
-/// the established arm vertex indices do not change.
+/// Extend the existing 32-vertex torso ring directly into a saddle-shaped
+/// pelvic surface with two procedural thigh openings. No skirt ring is added;
+/// `crotch_id` preserves the original shoulder vertex indices.
 pub fn append(
     mesh: &mut MeshBuilder,
     torso_bottom: &[u32],
@@ -152,18 +142,19 @@ pub fn append(
         return Err("Pelvis requires 32 torso vertices and a crotch centre".into());
     }
     let dims = PelvisDimensions::from(recipe);
-    let skirt = mesh.loop_vertices((0..32).map(|column| dims.outer_point(column)));
-    mesh.stitch(&skirt, torso_bottom)?;
-
+    // Connect directly to the existing torso lower boundary. The previous
+    // extra skirt ring protruded beyond the thighs and created a false hem.
+    // This also removes the artificial 32-quad vertical flare.
     let mut grid = [[0_u32; 9]; 9];
-    let outside: [Vec3; 32] = std::array::from_fn(|column| mesh.vertices[skirt[column] as usize]);
+    let outside: [Vec3; 32] =
+        std::array::from_fn(|column| mesh.vertices[torso_bottom[column] as usize]);
     let mut influences = Vec::new();
     for j in 0..=GRID {
         for i in 0..=GRID {
             grid[j][i] = if let Some(column) = outside_index(i, j) {
-                skirt[column]
+                torso_bottom[column]
             } else {
-                let position = coons_position(i, j, &outside);
+                let position = coons_position(i, j, &outside, dims);
                 if i == 4 && j == 4 {
                     mesh.vertices[crotch_id as usize] = position;
                     crotch_id
@@ -175,9 +166,9 @@ pub fn append(
         }
     }
 
-    // Rectangular 2×4 quad holes create two disjoint leg-boundary loops.
-    // Grid faces run downward; the holes run in reverse boundary orientation
-    // and are stitched directly to thigh rings below the pelvic plane.
+    // Two topologically separate 2×4 quad holes form the anatomical leg
+    // sockets. The grid's interior sags into the central crotch rather than
+    // remaining a flat underside of an overhanging skirt.
     for row in 0..GRID {
         for column in 0..GRID {
             if is_hole_cell(column, row) { continue; }
@@ -198,36 +189,42 @@ pub fn append(
             .map(|&id| mesh.vertices[id as usize]).sum::<Vec3>()
             / hole.len() as f32;
         let (hip, knee) = joint_positions(recipe, side);
-        let direction = (knee - hip).normalize();
-        // Retain the angular correspondence of the pelvis grid's hole rim.
-        let angles: Vec<f32> = hole.iter().map(|&id| {
-            let offset = mesh.vertices[id as usize] - hole_centre;
+        // Every new thigh loop is deformed from the *same socket rim*,
+        // avoiding the discontinuity caused by attaching an independent
+        // circular cylinder immediately below a flat pelvis.
+        let root: Vec<Vec3> = hole.iter().map(|&id| mesh.vertices[id as usize]).collect();
+        let angles: Vec<f32> = root.iter().map(|&point| {
+            let offset = point - hole_centre;
             offset.z.atan2(offset.x)
         }).collect();
-        let radius_limit = hip.x.abs() * 0.78;
         let mut previous = hole;
-        for (band, (fraction, width, depth, pelvis_weight)) in [
-            (0.20_f32, 0.062_f32, 0.082_f32, 0.42_f32),
-            (0.44, 0.061, 0.077, 0.17),
-            (0.72, 0.054, 0.065, 0.0),
-            (1.0, 0.043, 0.054, 0.0),
+        for (band, (progress, roundness, width, depth, pelvis_weight)) in [
+            (0.14_f32, 0.18_f32, 0.070_f32, 0.086_f32, 0.42_f32),
+            (0.37, 0.50, 0.074, 0.088, 0.17),
+            (0.68, 0.80, 0.067, 0.077, 0.0),
+            (1.0, 1.0, 0.049, 0.061, 0.0),
         ].into_iter().enumerate() {
-            let centre = hole_centre.lerp(knee, fraction);
+            let centre_x = hip.x + (knee.x - hip.x) * progress;
             let radius_x = (width * dims.thigh_girth * dims.scale)
-                .min(radius_limit);
+                .min(hip.x.abs() * 0.92);
             let radius_z = depth * dims.thigh_girth * dims.scale
-                * (1.0 + 0.08 * (dims.body_mass - 0.5));
-            let next = mesh.loop_vertices(angles.iter().map(|angle| {
-                // The upper-most ring blends towards the pelvic opening;
-                // knee rings gradually taper. Later pose correctives can
-                // reuse exactly these stable ring indices.
-                let roundness = if band == 0 { 1.0 } else { 0.96 };
-                centre + Vec3::new(
-                    angle.cos() * radius_x * roundness,
-                    direction.y.abs() * (fraction * 0.001) * dims.scale,
-                    angle.sin() * radius_z * roundness,
+                * (1.0 + 0.10 * (dims.body_mass - 0.5));
+            let next = mesh.loop_vertices(root.iter().zip(&angles).map(|(&point, &angle)| {
+                let circular_x = centre_x + angle.cos() * radius_x;
+                let circular_z = angle.sin() * radius_z;
+                Vec3::new(
+                    point.x * (1.0 - roundness) + circular_x * roundness,
+                    point.y + (knee.y - point.y) * progress,
+                    point.z * (1.0 - roundness) + circular_z * roundness,
                 )
             }));
+            // Every corresponding vertex descends monotonically, even where
+            // the crotch is substantially lower than the outer hip surface.
+            if previous.iter().zip(&next).any(|(&a, &b)| {
+                mesh.vertices[b as usize].y >= mesh.vertices[a as usize].y - 1.0e-5
+            }) {
+                return Err(format!("Upper-leg ring {band} doubles back toward the pelvis"));
+            }
             mesh.stitch(&previous, &next)?;
             for &vertex in &next {
                 influences.push((vertex, weight(pelvis_weight, joint)));
@@ -245,6 +242,7 @@ pub fn append(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::TAU;
 
     #[test]
     fn hole_boundaries_each_have_twelve_distinct_vertices() {

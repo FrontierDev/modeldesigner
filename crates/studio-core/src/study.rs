@@ -17,8 +17,8 @@ const ARM_HOLE_COLUMNS: usize = 4;
 // y, half-width, half-depth. These are surface *landmarks*, not volume primitives.
 // Joint and patch positions are evaluated from the same normalized measurements.
 const TORSO_SECTIONS: [(f32, f32, f32); 13] = [
-    (0.78, 0.144, 0.105),
-    (0.86, 0.173, 0.130),
+    (0.78, 0.159, 0.122),
+    (0.86, 0.151, 0.115),
     (0.95, 0.162, 0.125),
     (1.05, 0.156, 0.118),
     (1.15, 0.167, 0.128),
@@ -68,6 +68,9 @@ struct Measurements {
     triceps_volume: f32,
     elbow_width: f32,
     arm_taper: f32,
+    hip_width: f32,
+    pelvis_tilt: f32,
+    glute_volume: f32,
 }
 impl From<&Recipe> for Measurements {
     fn from(recipe: &Recipe) -> Self {
@@ -102,6 +105,9 @@ impl From<&Recipe> for Measurements {
             triceps_volume: m.triceps_volume,
             elbow_width: m.elbow_width,
             arm_taper: m.arm_taper,
+            hip_width: m.hip_width,
+            pelvis_tilt: m.pelvis_tilt,
+            glute_volume: m.glute_volume,
         }
     }
 }
@@ -145,6 +151,7 @@ impl Measurements {
         let shoulder_zone = smoothstep(1.25, 1.36, y)
             * (1.0 - smoothstep(1.47, 1.53, y));
         let neck = smoothstep(1.43, 1.53, y);
+        let hip_region = 1.0 - smoothstep(0.78, 0.96, y);
         let upper_chest = smoothstep(1.20, 1.29, y)
             * (1.0 - smoothstep(1.38, 1.46, y));
         let medial = 1.0 - smoothstep(0.36, 0.94, lateral);
@@ -159,7 +166,8 @@ impl Measurements {
             * (1.0 + 0.08 * chest * (self.musculature - 0.5))
             * (1.0 + posterior * lateral * back
                 * (self.lat_spread - 1.0) * 0.90)
-            * (1.0 + neck * (self.neck_width - 1.0));
+            * (1.0 + neck * (self.neck_width - 1.0))
+            * (1.0 + hip_region * (self.hip_width - 1.0));
         let depth = base_depth
             * (1.0 + chest * (self.chest_depth - 1.0))
             * (1.0 + waist * (self.waist_depth - 1.0))
@@ -177,13 +185,18 @@ impl Measurements {
             * abdomen * anterior;
         let back_projection = -0.052 * (self.upper_back_fullness - 0.5)
             * back * posterior;
+        let glute_projection = -0.055 * (self.glute_volume - 0.5)
+            * posterior * hip_region;
+        let pelvic_inclination = 0.028 * (self.pelvis_tilt - 0.5)
+            * cos * hip_region;
         let shoulder_translation = 0.090 * (self.shoulder_forward - 0.5)
             * lateral.powi(4) * shoulder_zone;
         Vec3::new(
             sin * width * self.height,
-            self.y(y) + self.side_slope(lateral.powi(6), y),
+            self.y(y) + self.side_slope(lateral.powi(6), y)
+                + pelvic_inclination * self.height,
             ((cos * depth + pectoral - sternum + abdomen_projection
-                + back_projection + shoulder_translation) * self.height)
+                + back_projection + shoulder_translation + glute_projection) * self.height)
                 + self.spinal_shift(y),
         )
     }
@@ -707,9 +720,9 @@ mod tests {
     #[test]
     fn neutral_study_is_closed_and_authors_per_ring_skin_weights() {
         let result = build(&Recipe::default()).unwrap();
-        assert_eq!(result.surface.vertices.len(), 758);
-        assert_eq!(result.surface.quads.len(), 688);
-        assert_eq!(result.surface.triangles.len(), 1464);
+        assert_eq!(result.surface.vertices.len(), 726);
+        assert_eq!(result.surface.quads.len(), 656);
+        assert_eq!(result.surface.triangles.len(), 1400);
         assert_eq!(result.weights.len(), result.surface.vertices.len());
         assert_eq!(result.corrective_rings.len(), 10);
         assert_eq!(skeleton(&Recipe::default()).len(), 14);
