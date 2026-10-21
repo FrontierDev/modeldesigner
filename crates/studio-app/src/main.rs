@@ -321,7 +321,7 @@ impl StudioApp {
     fn save_recipe(&mut self, save_as: bool) {
         let path = if save_as { None } else { self.recipe_path.clone() }
             .or_else(|| FileDialog::new().add_filter("Model recipe", &["json"])
-                .set_file_name("upper-body.json").save_file());
+                .set_file_name("humanoid.json").save_file());
         let Some(mut path) = path else { return; };
         if path.extension().is_none() { path.set_extension("json"); }
         let result = self.recipe.to_json().and_then(|json| write_atomic(&path, &json));
@@ -341,7 +341,7 @@ impl StudioApp {
             return;
         }
         let Some(mut path) = FileDialog::new().add_filter("Wavefront OBJ", &["obj"])
-            .set_file_name("upper-body.obj").save_file() else { return; };
+            .set_file_name("humanoid-study.obj").save_file() else { return; };
         if path.extension().is_none() { path.set_extension("obj"); }
         let companion = path.with_extension("rig.json");
         // The pose controls are visual diagnostics only: export neutral bind pose.
@@ -359,7 +359,7 @@ impl StudioApp {
     fn export_build_schema(&mut self) {
         let Some(mut path) = FileDialog::new()
             .add_filter("Build schema", &["json"])
-            .set_file_name("upper-body-build-schema.json")
+            .set_file_name("humanoid-build-schema.json")
             .save_file()
         else { return; };
         if path.extension().is_none() { path.set_extension("json"); }

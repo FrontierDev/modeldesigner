@@ -293,7 +293,7 @@ pub fn build_schema_json() -> Result<String, String> {
     }).collect();
     serde_json::to_string_pretty(&serde_json::json!({
         "schema_version": crate::SCHEMA_VERSION,
-        "model_type": "upper_body_study",
+        "model_type": "humanoid_study",
         "controls": controls
     })).map_err(|error| error.to_string())
 }
