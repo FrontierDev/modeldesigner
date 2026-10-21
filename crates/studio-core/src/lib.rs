@@ -3,7 +3,7 @@
 //! Generic quad meshing is separate from anatomy-specific construction.
 //! The only active generator is a connected upper-body geometry study.
 
-use glam::{Quat, Vec3};
+use glam::Quat;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
@@ -224,6 +224,7 @@ pub fn generate_posed(recipe: &Recipe, pose: PreviewPose) -> Result<Model, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Vec3;
 
     #[test]
     fn exported_mesh_has_quads_and_a_consistent_rig() {
