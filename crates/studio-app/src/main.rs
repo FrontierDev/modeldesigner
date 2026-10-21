@@ -25,7 +25,7 @@ struct Camera {
 
 impl Camera {
     fn framed(height: f32) -> Self {
-        Self { yaw: 0.48, pitch: 0.16, distance: height * 2.5, target: Vec3::Y * (height * 0.52) }
+        Self { yaw: 0.48, pitch: 0.12, distance: height * 1.25, target: Vec3::Y * (height * 0.70) }
     }
 
     fn basis(&self) -> Basis {
@@ -90,14 +90,15 @@ fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
 fn draw_model_statistics(painter: &egui::Painter, viewport: Rect, model: &Model, recipe: &Recipe) {
     let panel = Rect::from_min_size(
         viewport.right_top() + egui::vec2(-194.0, 12.0),
-        egui::vec2(182.0, 145.0),
+        egui::vec2(182.0, 166.0),
     );
     painter.rect_filled(panel, 5.0, Color32::from_rgba_unmultiplied(28, 32, 38, 228));
     let entries = [
         ("MODEL", String::new()),
-        ("Type", "Humanoid".to_owned()),
+        ("Study", "Upper body".to_owned()),
         ("Height", format!("{:.2} m", recipe.height)),
         ("Vertices", model.vertices.len().to_string()),
+        ("Quads", model.quads.len().to_string()),
         ("Triangles", model.triangles.len().to_string()),
         ("Joints", model.joints.len().to_string()),
     ];
@@ -292,7 +293,7 @@ impl StudioApp {
     fn save_recipe(&mut self, save_as: bool) {
         let path = if save_as { None } else { self.recipe_path.clone() }
             .or_else(|| FileDialog::new().add_filter("Model recipe", &["json"])
-                .set_file_name("humanoid.json").save_file());
+                .set_file_name("upper-body.json").save_file());
         let Some(mut path) = path else { return; };
         if path.extension().is_none() { path.set_extension("json"); }
         let result = self.recipe.to_json().and_then(|json| write_atomic(&path, &json));
@@ -311,7 +312,7 @@ impl StudioApp {
             self.notice = Some(("Export failed: no validated model".into(), true)); return;
         };
         let Some(mut path) = FileDialog::new().add_filter("Wavefront OBJ", &["obj"])
-            .set_file_name("humanoid.obj").save_file() else { return; };
+            .set_file_name("upper-body.obj").save_file() else { return; };
         if path.extension().is_none() { path.set_extension("obj"); }
         let companion = path.with_extension("rig.json");
         let result = model.to_rig_json().and_then(|rig| {
@@ -327,7 +328,7 @@ impl StudioApp {
     fn export_build_schema(&mut self) {
         let Some(mut path) = FileDialog::new()
             .add_filter("Build schema", &["json"])
-            .set_file_name("humanoid-build-schema.json")
+            .set_file_name("upper-body-build-schema.json")
             .save_file()
         else { return; };
         if path.extension().is_none() { path.set_extension("json"); }
@@ -343,7 +344,7 @@ impl StudioApp {
         ui.heading("Models");
         ui.separator();
         // Model types will grow beyond humanoids; only the humanoid generator exists today.
-        ui.selectable_label(true, "Humanoid");
+        ui.selectable_label(true, "Humanoid / upper-body study");
 
         ui.add_space(16.0);
         ui.label("Model name");
@@ -356,7 +357,7 @@ impl StudioApp {
     }
 
     fn draw_build(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Build");
+        ui.heading("Upper-body parameters");
         ui.separator();
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.show_advanced, false, "Player");
@@ -370,14 +371,11 @@ impl StudioApp {
         let mut changed = false;
         for (section, label) in [
             (BuildSection::Proportions, "Proportions"),
-            (BuildSection::Physique, "Physique"),
             (BuildSection::Torso, "Torso"),
-            (BuildSection::Arms, "Arms & hands"),
-            (BuildSection::Legs, "Pelvis & legs"),
-            (BuildSection::HeadNeck, "Head & neck"),
+            (BuildSection::Arms, "Upper arms"),
         ] {
             if !BUILD_CONTROLS.iter().any(|control| {
-                control.section == section && (show_advanced || control.player_editable)
+                control.section == section && control.implemented() && (show_advanced || control.player_editable)
             }) {
                 continue;
             }
@@ -386,7 +384,7 @@ impl StudioApp {
                 .show(ui, |ui| {
                     ui.add_space(4.0);
                     for control in BUILD_CONTROLS.iter().copied().filter(|control| {
-                        control.section == section && (show_advanced || control.player_editable)
+                        control.section == section && control.implemented() && (show_advanced || control.player_editable)
                     }) {
                         changed |= build_slider(ui, &mut self.recipe, control);
                     }

@@ -60,6 +60,23 @@ pub struct BuildControl {
     pub player_editable: bool,
 }
 impl BuildControl {
+    /// Only controls that affect the current upper-body study are exposed.
+    /// Additional humanoid controls will be enabled as corresponding patches arrive.
+    pub fn implemented(self) -> bool {
+        matches!(self.parameter,
+            BuildParameter::Height
+            | BuildParameter::ShoulderWidth
+            | BuildParameter::ArmLength
+            | BuildParameter::TorsoLength
+            | BuildParameter::ShoulderSlope
+            | BuildParameter::ChestWidth
+            | BuildParameter::ChestDepth
+            | BuildParameter::RibcageTaper
+            | BuildParameter::WaistWidth
+            | BuildParameter::UpperArmGirth
+        )
+    }
+
     pub fn get(self, recipe: &Recipe) -> f32 {
         match self.parameter {
             BuildParameter::Height => recipe.height,
@@ -145,7 +162,7 @@ impl BuildSection {
 /// Portable JSON contract for a future Unity/game character build UI.
 /// Parameter IDs and stored numeric values match the versioned humanoid recipe.
 pub fn build_schema_json() -> Result<String, String> {
-    let controls: Vec<_> = BUILD_CONTROLS.iter().map(|control| {
+    let controls: Vec<_> = BUILD_CONTROLS.iter().copied().filter(|control| control.implemented()).map(|control| {
         serde_json::json!({
             "id": control.id,
             "section": control.section.id(),
@@ -156,11 +173,12 @@ pub fn build_schema_json() -> Result<String, String> {
             "display_scale": control.display_scale,
             "suffix": control.suffix,
             "player_editable": control.player_editable,
+            "implemented": control.implemented(),
         })
     }).collect();
     serde_json::to_string_pretty(&serde_json::json!({
         "schema_version": crate::SCHEMA_VERSION,
-        "model_type": "humanoid",
+        "model_type": "upper_body_study",
         "controls": controls
     })).map_err(|error| error.to_string())
 }

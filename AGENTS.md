@@ -1,14 +1,13 @@
-# Model Designer engineering guidance
+# Model Designer engineering requirements
 
-- Work in the Rust workspace and follow existing native eframe/egui desktop conventions.
-- Keep procedural geometry, recipes, skeleton and export logic in `studio-core`. UI logic belongs in `studio-app`.
-- Maintain **one working humanoid generator** in `crates/studio-core/src/humanoid.rs`. Do not add numbered generator versions or backward-compatibility branches during prototyping.
-- Keep only **Default** in the presets panel.
-- Maintain the 21-joint skeleton, including both clavicles between chest and shoulder joints.
-- Keep the pectoral region integrated with the ribcage and the deltoid continuous with the humerus. Avoid rectangular pectoral shelves, spherical shoulder blobs and hard axillary gouges.
-- Validate triangle indices, normals, finite vertex values, skinning influences and preserved topology under build controls.
-- Use `BUILD_CONTROLS` as the single source for the desktop slider bounds, units, defaults and JSON build schema.
-- Keep the raw indexed triangle preview to avoid anti-aliased polygon-spike artifacts, plus top-right model statistics.
-- Prototype meshes may change in place; do not claim backward compatibility or animation-ready topology.
-- Run `cargo fmt --all -- --check`, `cargo check --workspace`, `cargo test --workspace`, and `cargo clippy --workspace --all-targets -- -D warnings` when the Rust toolchain is available.
-- Avoid unnecessary fallbacks and unnecessary text in the authoring UI.
+- Maintain separate model-independent geometry operations and model-specific generator definitions.
+- No use of imported humanoid meshes as a prerequisite; no SDF/marching-tetrahedra humanoid generator.
+- `crates/studio-core/src/mesh.rs` owns explicit indexed patch topology, loop stitching, face triangulation and mesh validation.
+- `crates/studio-core/src/study.rs` constructs the first upper-body geometry from anatomical cross-sections and sewn shoulder-hole boundaries. Do not use duplicated seam vertices or separate capsule volumes for the shoulders.
+- Keep one active, evolving generator, not numbered anatomy versions. Preserve only Default preset.
+- Topology must remain identical across all implemented controls. Unsupported sliders must be hidden and their non-neutral recipe values rejected.
+- Validate oriented manifold closure, no degenerate faces, no non-finite vertex positions, deterministic indices and skin weight normalization.
+- Shared build schema contains only implemented controls; new anatomy stages explicitly expand the implemented list.
+- Keep editor panels and raw indexed preview; top-right statistics must show quads as well as triangles.
+- Do not claim human anatomical realism, production skinning, fully rigged humanoid or animation correctness for a torso-only topology study.
+- Before merging further anatomy, run cargo fmt/check/test/clippy and evaluate silhouette, edge flow and bone movement.
