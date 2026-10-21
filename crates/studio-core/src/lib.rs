@@ -7,6 +7,7 @@ use glam::Quat;
 use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
+pub mod anatomy;
 pub mod controls;
 pub mod mesh;
 pub mod morphology;

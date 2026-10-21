@@ -15,9 +15,6 @@ const TETS: [[usize; 4]; 6] = [
     [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
     [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6],
 ];
-const EDGES: [(usize, usize); 6] =
-    [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
-
 #[derive(Clone, Debug)]
 pub struct Landmark {
     pub name: &'static str,
@@ -98,7 +95,7 @@ impl AnatomyTarget {
                 Vec3::new(0.083, 0.073, 0.079)),
         ];
 
-        for (side, prefix) in [(-1.0_f32, "left"), (1.0, "right")] {
+        for side in [-1.0_f32, 1.0] {
             let hip = Vec3::new(side * hip_x, 0.750 + y_shift, 0.0) * s;
             let trochanter = Vec3::new(side * (hip_x + 0.032), 0.705, -0.005) * s;
             let knee = Vec3::new(
@@ -142,9 +139,6 @@ impl AnatomyTarget {
                     s, Vec3::new(side * (leg_x - 0.026), 0.615, 0.009),
                     Vec3::new(0.057 * girth, 0.139, 0.073 * girth)),
             ]);
-            // Prefix is deliberately not used to derive names dynamically:
-            // static region IDs can later anchor archetype-specific fitting.
-            let _ = prefix;
         }
         if volumes.iter().any(|p| !p.centre.is_finite()
             || !p.radii.is_finite() || p.radii.min_element() <= 0.0)
@@ -172,12 +166,11 @@ impl AnatomyTarget {
 
     fn normal(&self, p: Vec3) -> Vec3 {
         let h = 0.0035 * self.scale;
-        let e = Vec3::splat(h);
         Vec3::new(
             self.field(p + Vec3::X * h) - self.field(p - Vec3::X * h),
             self.field(p + Vec3::Y * h) - self.field(p - Vec3::Y * h),
             self.field(p + Vec3::Z * h) - self.field(p - Vec3::Z * h),
-        ).normalize_or_zero() + e * 0.0
+        ).normalize_or_zero()
     }
 
     /// Preview-only marching tetrahedra. A shared edge cache prevents cracks
