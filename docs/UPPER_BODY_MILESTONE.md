@@ -56,3 +56,7 @@ Review geometry in 3/4, front, side and back views and ensure no patch self-inte
 ## Upper-body control milestone
 
 The torso/shoulder/upper-arm prototype now exposes 29 active anatomical sliders. These cover global build, body composition, neck termination, torso and back, chest and pectorals, shoulder girdle and deltoids, and upper-arm muscle contours. Each control is wired into the procedural ring construction or joint landmarks and serialized through the shared recipe/schema. See [UPPER_BODY_CONTROLS.md](UPPER_BODY_CONTROLS.md).
+
+## Next body-region extension: pelvis and upper legs
+
+The succeeding milestone is now in [PELVIS_UPPER_LEGS.md](PELVIS_UPPER_LEGS.md). The torso's bottom cap has been replaced with a continuous pelvic split, provisional hip/knee bones and parameterized upper legs. This document remains as the record of the completed upper-body surface-construction phase.

@@ -1,6 +1,6 @@
 # Model Designer
 
-Native Rust procedural model designer for Ninth Age. The architecture is designed to support multiple model generators; the first active generator is a **humanoid upper-body topology study**.
+Native Rust procedural model designer for Ninth Age. The architecture is designed to support multiple model generators; the first active generator is a **connected torso, pelvis and upper-leg study**.
 
 ## Architecture
 
@@ -13,11 +13,11 @@ The old SDF/marching-tetrahedra humanoid generator has been removed. **No refere
 
 ## First milestone: upper-body study
 
-The current output is intentionally **not a complete human**. It consists of a torso, neck termination and two upper arms ending at the elbows. It demonstrates connected chest/shoulder/arm surfaces without remeshing, and the same topology under supported parameter changes. The first study has 10 anatomical joints, including clavicles; skin weights remain provisional.
+The current output is intentionally **not a complete human**. It consists of a torso, neck termination, a pelvis, two upper arms ending at the elbows, and two upper legs ending at the knees. It demonstrates connected chest/shoulder/arm surfaces without remeshing, and the same topology under supported parameter changes. The current study has **14 anatomical joints**, including clavicles, hips and knees; skin weights remain provisional.
 
-**29 functional upper-body sliders** are available in seven anatomical groups: Proportions, Physique, Neck, Torso & back, Chest & pectorals, Shoulders & deltoids, and Upper arms. The editor provides Player/Advanced filtering, per-group resets, global reset and parameter tooltips. All supported values deform the current surface; future head, forearm and lower-body parameters remain hidden and cannot be set to non-neutral values.
+**35 functional build sliders** are available across nine anatomical groups: Proportions, Physique, Neck, Torso & back, Chest & pectorals, Shoulders & deltoids, Upper arms, Pelvis, and Upper legs. The editor provides Player/Advanced filtering, per-group resets, global reset and parameter tooltips. All supported values deform the current surface; future head, forearm and lower-body parameters remain hidden and cannot be set to non-neutral values.
 
-The updated shoulder connection adds intermediate **transition and deltoid-insertion loops**, allowing the torso-to-upper-arm cross-section to change more gradually. The first study now contains **580 vertices, 512 quads and 1,120 render triangles** in its neutral configuration. Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
+The shoulder continues to use intermediate **transition and deltoid-insertion loops**. The connected pelvic split and upper thighs bring the neutral study to **758 vertices, 688 quads and 1,464 render triangles** (including temporary boundary caps). Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
 
 The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Clavicles now pivot from their medial/sternal ends. Shoulder attachment weights vary continuously around the axilla and across nearby torso columns, while the deltoid correction preserves transverse radius relative to the posed upper-arm axis. The sternum and opposite arm remain stationary when only one side moves.
 
@@ -55,3 +55,11 @@ See [the milestone plan](docs/UPPER_BODY_MILESTONE.md).
 ## Morphology controls
 
 See [Upper-body morphology controls](docs/UPPER_BODY_CONTROLS.md) for the full 29-parameter catalogue, numeric ranges, defaults and anatomy-specific behaviour.
+
+## Pelvis and upper-leg milestone
+
+The bottom of the torso no longer has a closing cap. It transitions into a pelvic skirt and a constrained 9×9 quad grid with **two 12-vertex thigh openings**. Each thigh is sewn directly onto its opening with four longitudinal rings, ending at a temporary knee cap. There are no intersecting cylinder shells or remeshing operations.
+
+Six existing parameters are activated: hip width, pelvis tilt, glute volume, thigh girth, stance width and provisional upper-leg length. Bone chains now include hip and knee landmarks on each side. See [the pelvis and upper-leg implementation](docs/PELVIS_UPPER_LEGS.md) for details.
+
+**CI is manual-only** (`workflow_dispatch`). No automatic GitHub Actions runs occur on commits. Local Rust checks may be run with `cargo check --workspace` and `cargo test --workspace`; the code is not considered runtime-verified until these succeed.
