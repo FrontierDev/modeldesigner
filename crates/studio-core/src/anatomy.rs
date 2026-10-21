@@ -286,7 +286,10 @@ impl AnatomyTarget {
                         for mut tri in candidates {
                             let [a,b,c] = tri.map(|v| Vec3::from_array(surface.vertices[v as usize]));
                             let normal = (b-a).cross(c-a);
-                            if normal.length_squared() <= 1.0e-14 * self.scale.powi(4) {
+                            // Tiny but nonzero triangles are essential to
+                            // the edge-paired preview. Rejecting merely small
+                            // faces creates cracks at near-grid-corner cuts.
+                            if normal.length_squared() <= 1.0e-20 * self.scale.powi(4) {
                                 continue;
                             }
                             let centre = (a+b+c)/3.0;
