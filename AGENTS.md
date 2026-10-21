@@ -11,3 +11,6 @@
 - Keep editor panels and raw indexed preview; top-right statistics must show quads as well as triangles.
 - Do not claim human anatomical realism, production skinning, fully rigged humanoid or animation correctness for a torso-only topology study.
 - Before merging further anatomy, run cargo fmt/check/test/clippy and evaluate silhouette, edge flow and bone movement.
+- Preview wireframe shows quad boundaries, not internal render-only triangulation diagonals.
+- Keep interactive preview pose values separate from `Recipe`; exporting OBJ and rig data always uses the neutral reference mesh.
+- Upper-arm pose must retain the shared torso seam, consistent mesh face indices, manifold closure and neutral influence weights. Pose controls are a topology stress test, not production skinning.
