@@ -6,10 +6,11 @@
 //! vertex indices, skin weights and UVs must come from a later quad-cage fitter.
 
 use crate::Recipe;
+use crate::torso_target::TorsoTarget;
 use glam::Vec3;
 use std::collections::HashMap;
 
-const PREVIEW_STEP_METRES: f32 = 0.026;
+const PREVIEW_STEP_METRES: f32 = 0.030;
 const MAX_GRID_POINTS: usize = 180_000;
 const TETS: [[usize; 4]; 6] = [
     [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
@@ -35,6 +36,7 @@ pub struct AnatomyTarget {
     pub landmarks: Vec<Landmark>,
     pub volumes: Vec<TissueVolume>,
     pub scale: f32,
+    torso: TorsoTarget,
     blend_width: f32,
 }
 
@@ -143,6 +145,22 @@ impl AnatomyTarget {
                     Vec3::new(0.057 * girth, 0.139, 0.073 * girth)),
             ]);
         }
+        let torso = TorsoTarget::from_recipe(recipe);
+        landmarks.extend([
+            Landmark { name: "sternum", position: Vec3::new(0.0, 1.31, 0.125) * s },
+            Landmark { name: "neck_top", position: torso.neck_top },
+        ]);
+        for i in 0..2 {
+            let left = i == 0;
+            landmarks.push(Landmark {
+                name: if left { "left_shoulder" } else { "right_shoulder" },
+                position: torso.shoulders[i],
+            });
+            landmarks.push(Landmark {
+                name: if left { "left_elbow" } else { "right_elbow" },
+                position: torso.elbows[i],
+            });
+        }
         if volumes.iter().any(|p| !p.centre.is_finite()
             || !p.radii.is_finite() || p.radii.min_element() <= 0.0)
         {
@@ -152,16 +170,15 @@ impl AnatomyTarget {
             landmarks,
             volumes,
             scale: s,
+            torso,
             blend_width: 0.044 * s,
         })
     }
 
     /// Negative inside anatomical tissue, positive outside.
     pub fn field(&self, point: Vec3) -> f32 {
-        let mut iter = self.volumes.iter();
-        let first = iter.next().expect("anatomical target always has a pelvic core");
-        let mut distance = ellipsoid_field(point, first);
-        for part in iter {
+        let mut distance = self.torso.field(point);
+        for part in &self.volumes {
             distance = smooth_union(distance, ellipsoid_field(point, part), self.blend_width);
         }
         distance
@@ -180,8 +197,11 @@ impl AnatomyTarget {
     /// between cells. This output is never rigged, UV-mapped or exported as a
     /// final fixed-topology humanoid.
     pub fn sample_preview(&self) -> Result<TargetSurface, String> {
-        let min = Vec3::new(-0.39, 0.17, -0.36) * self.scale;
-        let max = Vec3::new(0.39, 1.09, 0.36) * self.scale;
+        // Full upper body, including extended upper arms, waist and thighs.
+        // Keep generous clearance from the sampled surface at every slider
+        // extreme so the disposable isosurface remains closed.
+        let min = Vec3::new(-0.73, 0.12, -0.42) * self.scale;
+        let max = Vec3::new(0.73, 1.76, 0.42) * self.scale;
         let step = PREVIEW_STEP_METRES * self.scale;
         let extent = max - min;
         let nx = (extent.x / step).ceil() as usize;
@@ -385,6 +405,43 @@ mod tests {
         assert!(!sampled.triangles.is_empty());
         assert!(sampled.normals.iter()
             .flatten().all(|component| component.is_finite()));
+    }
+
+    #[test]
+    fn pelvis_and_torso_are_one_continuous_anatomical_target() {
+        let target = AnatomyTarget::from_recipe(&Recipe::default()).unwrap();
+        // Torso, waist, lower abdomen and pelvis must form a contiguous
+        // negative-field interior through the body centreline.
+        for y in [0.71, 0.78, 0.87, 0.99, 1.12, 1.28, 1.44, 1.53] {
+            assert!(target.field(Vec3::new(0.0, y, 0.0)) < 0.0,
+                "Target is disconnected at torso height {y}");
+        }
+        assert!(target.field(Vec3::new(0.0, 1.74, 0.0)) > 0.0);
+        assert!(target.field(Vec3::new(0.49, 1.15, 0.0)) < 0.0,
+            "Upper arm should be continuous");
+        assert!(target.landmarks.iter().any(|p| p.name == "sternum"));
+        assert!(target.landmarks.iter().any(|p| p.name == "left_shoulder"));
+    }
+
+    #[test]
+    fn full_torso_parameters_deform_target_without_regenerating_rig() {
+        let neutral = AnatomyTarget::from_recipe(&Recipe::default()).unwrap();
+        let mut broad = Recipe::default();
+        broad.morphology.chest_width = 1.25;
+        let wide = AnatomyTarget::from_recipe(&broad).unwrap();
+        assert!(wide.field(Vec3::new(0.19, 1.30, 0.0))
+            < neutral.field(Vec3::new(0.19, 1.30, 0.0)));
+        let mut deep = Recipe::default();
+        deep.morphology.chest_depth = 1.30;
+        let deeper = AnatomyTarget::from_recipe(&deep).unwrap();
+        assert!(deeper.field(Vec3::new(0.03, 1.23, 0.14))
+            < neutral.field(Vec3::new(0.03, 1.23, 0.14)));
+        let mut shoulders = Recipe::default();
+        shoulders.shoulder_width = 0.62;
+        let wider = AnatomyTarget::from_recipe(&shoulders).unwrap();
+        assert!(wider.landmarks.iter().find(|p| p.name == "right_shoulder").unwrap()
+            .position.x > neutral.landmarks.iter()
+            .find(|p| p.name == "right_shoulder").unwrap().position.x);
     }
 
     #[test]

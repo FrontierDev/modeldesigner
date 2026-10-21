@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Write as _;
 
 pub mod anatomy;
+mod torso_target;
 pub mod controls;
 pub mod mesh;
 pub mod morphology;
