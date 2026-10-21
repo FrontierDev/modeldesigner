@@ -7,6 +7,11 @@ use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::sync::OnceLock;
 
+pub mod controls;
+pub mod morphology;
+pub use controls::{BuildControl, BuildParameter, BuildSection, BUILD_CONTROLS};
+pub use morphology::Morphology;
+
 pub const SCHEMA_VERSION: u32 = 1;
 pub const GENERATOR_VERSION: u32 = 1;
 pub const REFERENCE_HEIGHT: f32 = 1.75;
@@ -29,6 +34,9 @@ pub struct Recipe {
     pub musculature: f32,
     /// 0.0–1.0 stylistic body fullness (0.5 = neutral).
     pub body_mass: f32,
+    /// Region-specific build controls. Missing in earlier v1 recipes: use neutral defaults.
+    #[serde(default)]
+    pub morphology: Morphology,
 }
 
 impl Default for Recipe {
@@ -43,79 +51,11 @@ impl Default for Recipe {
             leg_length: 1.0,
             musculature: 0.5,
             body_mass: 0.5,
+            morphology: Morphology::default(),
         }
     }
 }
 
-
-/** A stable identifier for a character-build slider. */
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BuildParameter {
-    Height,
-    ShoulderWidth,
-    ArmLength,
-    LegLength,
-    Musculature,
-    BodyMass,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BuildSection {
-    Proportions,
-    Physique,
-}
-
-/// One source of truth for authoring and future in-game build sliders.
-/// Values stored in recipes remain in metres or unitless ratios; only UI display is scaled.
-#[derive(Clone, Copy, Debug)]
-pub struct BuildControl {
-    pub parameter: BuildParameter,
-    pub section: BuildSection,
-    pub label: &'static str,
-    pub min: f32,
-    pub max: f32,
-    pub display_scale: f32,
-    pub suffix: &'static str,
-}
-
-impl BuildControl {
-    pub fn get(self, recipe: &Recipe) -> f32 {
-        match self.parameter {
-            BuildParameter::Height => recipe.height,
-            BuildParameter::ShoulderWidth => recipe.shoulder_width,
-            BuildParameter::ArmLength => recipe.arm_length,
-            BuildParameter::LegLength => recipe.leg_length,
-            BuildParameter::Musculature => recipe.musculature,
-            BuildParameter::BodyMass => recipe.body_mass,
-        }
-    }
-
-    pub fn set(self, recipe: &mut Recipe, value: f32) {
-        match self.parameter {
-            BuildParameter::Height => recipe.height = value,
-            BuildParameter::ShoulderWidth => recipe.shoulder_width = value,
-            BuildParameter::ArmLength => recipe.arm_length = value,
-            BuildParameter::LegLength => recipe.leg_length = value,
-            BuildParameter::Musculature => recipe.musculature = value,
-            BuildParameter::BodyMass => recipe.body_mass = value,
-        }
-    }
-}
-
-pub const BUILD_CONTROLS: [BuildControl; 6] = [
-    BuildControl { parameter: BuildParameter::Height, section: BuildSection::Proportions,
-        label: "Height", min: 1.50, max: 2.10, display_scale: 100.0, suffix: " cm" },
-    BuildControl { parameter: BuildParameter::ShoulderWidth, section: BuildSection::Proportions,
-        label: "Shoulder width", min: 0.34, max: 0.62, display_scale: 100.0, suffix: " cm" },
-    BuildControl { parameter: BuildParameter::ArmLength, section: BuildSection::Proportions,
-        label: "Arm length", min: 0.82, max: 1.18, display_scale: 100.0, suffix: "%" },
-    BuildControl { parameter: BuildParameter::LegLength, section: BuildSection::Proportions,
-        label: "Leg length", min: 0.82, max: 1.18, display_scale: 100.0, suffix: "%" },
-    BuildControl { parameter: BuildParameter::Musculature, section: BuildSection::Physique,
-        label: "Musculature", min: 0.0, max: 1.0, display_scale: 100.0, suffix: "%" },
-    BuildControl { parameter: BuildParameter::BodyMass, section: BuildSection::Physique,
-        label: "Body mass", min: 0.0, max: 1.0, display_scale: 100.0, suffix: "%" },
-];
 
 impl Recipe {
     pub fn validate(&self) -> Result<(), String> {
@@ -280,7 +220,13 @@ pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
         Some(2), Some(9), Some(10), Some(11),
         Some(0), Some(13), Some(14), Some(0), Some(16), Some(17),
     ];
-    let coords = joint_positions(recipe.height, recipe.shoulder_width, recipe.arm_length, recipe.leg_length);
+    let mut coords = joint_positions(recipe.height, recipe.shoulder_width, recipe.arm_length, recipe.leg_length);
+    let neutral = joint_positions(REFERENCE_HEIGHT, 0.46, 1.0, 1.0);
+    for (position, landmark) in coords.iter_mut().zip(neutral) {
+        *position += morphology::structural_offset(
+            landmark, &recipe.morphology, recipe.height / REFERENCE_HEIGHT
+        );
+    }
     NAMES.iter().enumerate().map(|(i, name)| Joint {
         name: *name,
         parent: PARENTS[i],
@@ -312,9 +258,12 @@ fn deform(p: Vec3, r: &Recipe) -> Vec3 {
         .max(smoothstep(0.08, 0.18, p.x.abs()) * (1.0 - smoothstep(0.70, 0.96, p.y)));
     let muscle_scale = 1.0 + (r.musculature - 0.5) * 0.16 * muscle_region;
     let arm_drop = (target_shoulder - y) * (r.arm_length - 1.0) * arm_region * 0.75;
-    Vec3::new((lateral + arm_adjust) * mass_scale * muscle_scale * scale,
-              y - arm_drop,
-              p.z * (1.0 + (r.body_mass - 0.5) * 0.48 * mass_region) * muscle_scale * scale)
+    let base = Vec3::new(
+        (lateral + arm_adjust) * mass_scale * muscle_scale * scale,
+        y - arm_drop,
+        p.z * (1.0 + (r.body_mass - 0.5) * 0.48 * mass_region) * muscle_scale * scale,
+    );
+    morphology::deform_surface(p, base, &r.morphology, scale)
 }
 
 fn ellipsoid(p: Vec3, centre: Vec3, radii: Vec3) -> f32 {
@@ -456,7 +405,7 @@ mod tests {
     #[test]
     fn build_controls_match_recipe_validation_and_are_reversible() {
         let default = Recipe::default();
-        assert_eq!(BUILD_CONTROLS.len(), 6);
+        assert_eq!(BUILD_CONTROLS.len(), 30);
         for (index, control) in BUILD_CONTROLS.iter().copied().enumerate() {
             assert!(control.min < control.max);
             assert!(control.display_scale > 0.0);
@@ -473,6 +422,68 @@ mod tests {
             control.set(&mut edited, control.max + 1.0);
             assert!(edited.validate().is_err());
         }
+    }
+
+    #[test]
+    fn old_recipes_without_morphology_keep_neutral_defaults() {
+        let expected = generate(&Recipe::default()).unwrap();
+        let mut json = serde_json::to_value(Recipe::default()).unwrap();
+        json.as_object_mut().unwrap().remove("morphology");
+        let old = Recipe::from_json(&serde_json::to_string(&json).unwrap()).unwrap();
+        assert_eq!(old.morphology, Morphology::default());
+        assert_eq!(generate(&old).unwrap().vertices, expected.vertices);
+        assert_eq!(generate(&old).unwrap().triangles, expected.triangles);
+    }
+
+    #[test]
+    fn every_build_control_affects_mesh_without_changing_topology() {
+        let base = Recipe::default();
+        let reference = generate(&base).unwrap();
+        for control in BUILD_CONTROLS {
+            let mut changed = base.clone();
+            let value = if (control.default - control.min).abs() > 0.0001 {
+                control.min
+            } else {
+                control.max
+            };
+            control.set(&mut changed, value);
+            changed.validate().unwrap();
+            let generated = generate(&changed).unwrap();
+            assert_ne!(reference.vertices, generated.vertices, "{} did not deform mesh", control.id);
+            assert_eq!(reference.triangles, generated.triangles, "{} changed topology", control.id);
+            assert!(generated.vertices.iter().flatten().all(|v| v.is_finite()));
+            assert_eq!(generated.influences.len(), reference.influences.len());
+        }
+    }
+
+    #[test]
+    fn structural_controls_follow_rest_skeleton() {
+        for control in BUILD_CONTROLS.iter().copied().filter(|c| [
+            BuildParameter::TorsoLength, BuildParameter::NeckLength,
+            BuildParameter::ShoulderSlope, BuildParameter::HipWidth,
+            BuildParameter::StanceWidth, BuildParameter::PelvisTilt,
+        ].contains(&c.parameter)) {
+            let mut altered = Recipe::default();
+            control.set(&mut altered, control.max);
+            assert_ne!(
+                skeleton(&Recipe::default()).iter().map(|j| j.position).collect::<Vec<_>>(),
+                skeleton(&altered).iter().map(|j| j.position).collect::<Vec<_>>(),
+                "{} did not update rest skeleton", control.id
+            );
+        }
+    }
+
+    #[test]
+    fn exported_recipe_metadata_matches_build_controls() {
+        let model = Recipe::default();
+        let mut ids = std::collections::HashSet::new();
+        for control in BUILD_CONTROLS {
+            assert!(ids.insert(control.id), "duplicate parameter identifier: {}", control.id);
+            assert_eq!(control.get(&model), control.default, "bad default for {}", control.id);
+            assert!((control.min..=control.max).contains(&control.default));
+        }
+        assert!(BUILD_CONTROLS.iter().any(|control| !control.player_editable));
+        assert!(BUILD_CONTROLS.iter().any(|control| control.player_editable));
     }
 
     #[test]
