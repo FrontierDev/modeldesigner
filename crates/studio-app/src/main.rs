@@ -4,7 +4,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke};
 use glam::Vec3;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
-use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, Recipe, generate};
+use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, PreviewPose, Recipe, generate, generate_posed};
 use studio_core::controls::build_schema_json;
 
 fn main() -> eframe::Result<()> {
@@ -189,13 +189,37 @@ fn preview(
     // across the entire viewport. The GPU mesh retains the exact positions.
     painter.add(egui::Shape::mesh(triangle_mesh(&faces)));
     if wireframe {
-        let stroke = Stroke::new(0.35, Color32::from_rgb(20, 28, 38));
-        for face in &faces {
-            for edge in 0..3 {
-                painter.line_segment(
-                    [face.points[edge], face.points[(edge + 1) % 3]],
-                    stroke,
-                );
+        // The model's topology is quad-based. Do not render either of the
+        // temporary diagonals introduced to draw each quad on the screen.
+        let stroke = Stroke::new(0.6, Color32::from_rgb(14, 20, 27));
+        for &quad in &model.quads {
+            let a = Vec3::from_array(model.vertices[quad[0] as usize]);
+            let b = Vec3::from_array(model.vertices[quad[1] as usize]);
+            let c = Vec3::from_array(model.vertices[quad[2] as usize]);
+            let normal = (b - a).cross(c - a);
+            if normal.dot(basis.eye - a) <= 0.0 { continue; }
+            for edge in 0..4 {
+                let v0 = Vec3::from_array(model.vertices[quad[edge] as usize]);
+                let v1 = Vec3::from_array(model.vertices[quad[(edge + 1) % 4] as usize]);
+                if let (Some((p0, _)), Some((p1, _))) =
+                    (project(v0, &basis, rect), project(v1, &basis, rect))
+                {
+                    painter.line_segment([p0, p1], stroke);
+                }
+            }
+        }
+        // Only the temporary open-end study caps are genuinely triangulated.
+        for &[a, b, c] in &model.caps {
+            let va = Vec3::from_array(model.vertices[a as usize]);
+            let vb = Vec3::from_array(model.vertices[b as usize]);
+            let vc = Vec3::from_array(model.vertices[c as usize]);
+            if (vb - va).cross(vc - va).dot(basis.eye - va) <= 0.0 { continue; }
+            if let (Some((pa, _)), Some((pb, _)), Some((pc, _))) =
+                (project(va, &basis, rect), project(vb, &basis, rect), project(vc, &basis, rect))
+            {
+                for edge in [(pa, pb), (pb, pc), (pc, pa)] {
+                    painter.line_segment([edge.0, edge.1], stroke);
+                }
             }
         }
     }
@@ -221,6 +245,7 @@ struct StudioApp {
     camera: Camera,
     wireframe: bool,
     show_skeleton: bool,
+    pose: PreviewPose,
     show_advanced: bool,
     notice: Option<(String, bool)>,
 }
@@ -236,7 +261,8 @@ impl StudioApp {
         let model = generate(&recipe).ok();
         Self { saved: recipe.clone(), recipe_path: None,
             camera: Camera::framed(recipe.height), recipe, model,
-            wireframe: false, show_skeleton: false, show_advanced: false, notice: None }
+            wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
+            show_advanced: false, notice: None }
     }
 
     fn dirty(&self) -> bool { self.recipe != self.saved }
@@ -255,12 +281,13 @@ impl StudioApp {
         self.saved = self.recipe.clone();
         self.recipe_path = None;
         self.camera = Camera::framed(self.recipe.height);
+        self.pose = PreviewPose::default();
         self.notice = None;
         self.regenerate();
     }
 
     fn regenerate(&mut self) {
-        match generate(&self.recipe) {
+        match generate_posed(&self.recipe, self.pose) {
             Ok(model) => {
                 self.model = Some(model);
                 self.notice = None;
@@ -283,6 +310,7 @@ impl StudioApp {
                 self.saved = self.recipe.clone();
                 self.recipe_path = Some(path);
                 self.camera = Camera::framed(self.recipe.height);
+                self.pose = PreviewPose::default();
                 self.notice = None;
                 self.regenerate();
             }
@@ -315,8 +343,10 @@ impl StudioApp {
             .set_file_name("upper-body.obj").save_file() else { return; };
         if path.extension().is_none() { path.set_extension("obj"); }
         let companion = path.with_extension("rig.json");
-        let result = model.to_rig_json().and_then(|rig| {
-            write_atomic(&path, &model.to_obj())?;
+        // The pose controls are visual diagnostics only: export neutral bind pose.
+        let result = generate(&self.recipe).and_then(|neutral| {
+            let rig = neutral.to_rig_json()?;
+            write_atomic(&path, &neutral.to_obj())?;
             write_atomic(&companion, &rig)
         });
         self.notice = Some(match result {
@@ -470,6 +500,21 @@ impl eframe::App for StudioApp {
                 ui.checkbox(&mut self.show_skeleton, "Skeleton");
                 if ui.button("Reset view").clicked() {
                     self.camera = Camera::framed(self.recipe.height);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Shoulder pose");
+                let changed = ui.add(
+                    egui::Slider::new(&mut self.pose.arm_raise_deg, 0.0..=70.0)
+                        .text("Raise").suffix("°").fixed_decimals(0)
+                ).changed() | ui.add(
+                    egui::Slider::new(&mut self.pose.arm_forward_deg, 0.0..=55.0)
+                        .text("Forward").suffix("°").fixed_decimals(0)
+                ).changed();
+                if changed { self.regenerate(); }
+                if ui.button("Reset pose").clicked() {
+                    self.pose = PreviewPose::default();
+                    self.regenerate();
                 }
             });
             ui.add_space(6.0);
