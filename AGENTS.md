@@ -23,3 +23,7 @@
 - The humeral-head pivot is at 0.240 m lateral from the centre in the default neutral study, compared with the nearby torso contour at approximately 0.225 m. Keep the shoulder pivot appropriately medial rather than placing it at the deltoid silhouette.
 - Smooth the authored *upper* socket surface using a bounded, masked quad-adjacency fairing pass; do not smooth the entire torso or the already-corrected lower axilla. Reuse the same operator for a smaller pose-space correction after skinning, using a neutral-reference mask.
 - Track adjacent-face normals across the superior shoulder junction and validate independently posed arms as well as the neutral pose. Topology, neutral weights and vertex order must remain unchanged.
+
+- The upper-body study exposes **29 implemented sliders**, separated into Proportions, Physique, Neck, Torso, Chest, Shoulders and Arms. Do not expose unimplemented anatomy; control definitions, description metadata, recipe validation and JSON schema must agree.
+- New sliders must alter actual surface geometry (or justified joint placement), retain quad indices, and be testable at both bounds without degeneracy. Zero effect is a bug, not a fallback.
+- Preserve neutral morphology defaults when adding independent controls; do not change the Default shape inadvertently. Keep Player/Advanced filters and reset behaviour consistent.

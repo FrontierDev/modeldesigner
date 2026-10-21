@@ -15,7 +15,7 @@ The old SDF/marching-tetrahedra humanoid generator has been removed. **No refere
 
 The current output is intentionally **not a complete human**. It consists of a torso, neck termination and two upper arms ending at the elbows. It demonstrates connected chest/shoulder/arm surfaces without remeshing, and the same topology under supported parameter changes. The first study has 10 anatomical joints, including clavicles; skin weights remain provisional.
 
-Ten working sliders: height, shoulder width, arm length, torso length, shoulder slope, chest width, chest depth, ribcage taper, waist width, upper-arm girth. Other planned controls are not presented; attempts to set them away from their neutral value in a recipe fail explicitly.
+**29 functional upper-body sliders** are available in seven anatomical groups: Proportions, Physique, Neck, Torso & back, Chest & pectorals, Shoulders & deltoids, and Upper arms. The editor provides Player/Advanced filtering, per-group resets, global reset and parameter tooltips. All supported values deform the current surface; future head, forearm and lower-body parameters remain hidden and cannot be set to non-neutral values.
 
 The updated shoulder connection adds intermediate **transition and deltoid-insertion loops**, allowing the torso-to-upper-arm cross-section to change more gradually. The first study now contains **580 vertices, 512 quads and 1,120 render triangles** in its neutral configuration. Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
 
@@ -51,3 +51,7 @@ cargo run -p modeldesigner --release
 Once compiled, inspect the neutral study from front, profile and back, then vary shoulder width, chest width and upper-arm girth. This is only a **topological proof of concept**, not yet anatomically polished or animation-ready.
 
 See [the milestone plan](docs/UPPER_BODY_MILESTONE.md).
+
+## Morphology controls
+
+See [Upper-body morphology controls](docs/UPPER_BODY_CONTROLS.md) for the full 29-parameter catalogue, numeric ranges, defaults and anatomy-specific behaviour.

@@ -52,3 +52,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 ```
 
 Review geometry in 3/4, front, side and back views and ensure no patch self-intersection at parameter extremes.
+
+## Upper-body control milestone
+
+The torso/shoulder/upper-arm prototype now exposes 29 active anatomical sliders. These cover global build, body composition, neck termination, torso and back, chest and pectorals, shoulder girdle and deltoids, and upper-arm muscle contours. Each control is wired into the procedural ring construction or joint landmarks and serialized through the shared recipe/schema. See [UPPER_BODY_CONTROLS.md](UPPER_BODY_CONTROLS.md).
