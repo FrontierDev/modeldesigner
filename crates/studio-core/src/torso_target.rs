@@ -64,6 +64,9 @@ pub(crate) struct TorsoTarget {
     pub(crate) shoulders: [Vec3; 2],
     pub(crate) elbows: [Vec3; 2],
     pub(crate) neck_top: Vec3,
+    lat_spread: f32,
+    sternum_definition: f32,
+    scale: f32,
 }
 
 impl TorsoTarget {
@@ -163,6 +166,9 @@ impl TorsoTarget {
             neck_top: Vec3::new(0.0, sections[9].y, sections[9].z_centre),
             sections,
             arms,
+            lat_spread: m.lat_spread,
+            sternum_definition: m.sternum_definition,
+            scale,
         }
     }
 
@@ -179,11 +185,26 @@ impl TorsoTarget {
         let t = ((y - a.y) / (b.y - a.y)).clamp(0.0, 1.0);
         // Cubic Hermite interpolation prevents visible hard steps at sections.
         let t = t * t * (3.0 - 2.0 * t);
-        let width = a.width + (b.width - a.width) * t;
-        let front = a.front + (b.front - a.front) * t;
+        let mut width = a.width + (b.width - a.width) * t;
+        let mut front = a.front + (b.front - a.front) * t;
         let back = a.back + (b.back - a.back) * t;
         let z_centre = a.z_centre + (b.z_centre - a.z_centre) * t;
         let z = point.z - z_centre;
+        let reference_y = point.y / self.scale;
+        let chest = ((reference_y - 1.14) / 0.12).clamp(0.0, 1.0)
+            * ((1.46 - reference_y) / 0.11).clamp(0.0, 1.0);
+        // Upper back / lat spread is posterior-lateral, not a uniform
+        // expansion of the entire chest or a change to waist proportions.
+        if z < 0.0 {
+            width *= 1.0 + (self.lat_spread - 1.0) * 0.38 * chest;
+        }
+        // Local anterior midline depression; keep pectorals on either side.
+        if z >= 0.0 {
+            let midline = (1.0 - point.x.abs() / (width * 0.28))
+                .clamp(0.0, 1.0).powi(2);
+            front -= (0.003 + 0.026 * (self.sternum_definition - 0.5))
+                * self.scale * chest * midline;
+        }
         let depth = if z >= 0.0 { front } else { back };
         let cross_section = ((point.x / width).powi(2) + (z / depth).powi(2)).sqrt();
         let radial = (cross_section - 1.0) * width.min(depth);
@@ -221,6 +242,22 @@ mod tests {
             let midpoint = torso.shoulders[i].lerp(torso.elbows[i], 0.5);
             assert!(torso.field(midpoint) < 0.0);
         }
+    }
+
+    #[test]
+    fn sternum_and_lats_are_localized_to_anatomical_regions() {
+        let standard = TorsoTarget::from_recipe(&Recipe::default());
+        let mut sternum = Recipe::default();
+        sternum.morphology.sternum_definition = 1.0;
+        let defined = TorsoTarget::from_recipe(&sternum);
+        // Greater field at centre chest means deeper anterior indentation.
+        assert!(defined.field(Vec3::new(0.0, 1.29, 0.132))
+            > standard.field(Vec3::new(0.0, 1.29, 0.132)));
+        let mut lat = Recipe::default();
+        lat.morphology.lat_spread = 1.30;
+        let wider = TorsoTarget::from_recipe(&lat);
+        assert!(wider.field(Vec3::new(0.171, 1.28, -0.085))
+            < standard.field(Vec3::new(0.171, 1.28, -0.085)));
     }
 
     #[test]
