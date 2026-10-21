@@ -86,18 +86,35 @@ impl Dimensions {
             )
     }
 
+    /// Expand a thigh around its anatomical center without truncating its
+    /// outer circumference when the medial side reaches the crotch clearance.
+    ///
+    /// The old .min(center_x - gap) radius cap made Thigh Girth visually inert
+    /// over most of its upper range. Instead, keep the actual lateral extent
+    /// and move the cross-section centre outward *only as needed*.
+    fn transverse_section(self, side: f32, base_centre: f32, radius: f32) -> (f32, f32) {
+        let outward = base_centre.abs() + radius;
+        let inner = (base_centre.abs() - radius)
+            .max(MIN_MEDIAL_HALF_GAP * self.scale);
+        (side * (outward + inner) * 0.5, (outward - inner) * 0.5)
+    }
+
     // Proximal femur is inside the pelvic mass. The root circumference is
     // *not* a horizontal ring: lateral greater-trochanter contours climb
     // towards the hips while the medial edges descend into the crotch.
     fn root(self, side: f32, index: usize) -> Vec3 {
         let (cos, sin) = socket_direction(index);
-        let centre_x = side * 0.100 * self.hip_width * self.scale;
-        // Seat the greater-trochanter contour just outside the waist, not
-        // a pronounced lateral hip shelf. Keep a safe medial crotch gap.
-        let radius_x = (0.074 * self.thigh_girth
-            * (1.0 + 0.10 * (self.body_mass - 0.5)) * self.scale)
-            .min(centre_x.abs() - MIN_MEDIAL_HALF_GAP * self.scale);
-        let radius_z = 0.106 * self.thigh_girth
+        // Keep the greater trochanter around the femoral head but model a
+        // full proximal thigh, not a narrow cylinder below the waist.
+        // Medial clearance shifts the *contour* outward rather than silently
+        // discarding the thigh-girth slider's expansion.
+        let (centre_x, radius_x) = self.transverse_section(
+            side,
+            0.115 * self.hip_width * self.scale,
+            0.092 * self.thigh_girth
+                * (1.0 + 0.10 * (self.body_mass - 0.5)) * self.scale,
+        );
+        let radius_z = 0.125 * self.thigh_girth
             * (1.0 + 0.12 * (self.body_mass - 0.5))
             * self.scale;
         let outward = side * cos;
@@ -130,28 +147,38 @@ impl Dimensions {
     ) -> Vec3 {
         let (cos, sin) = socket_direction(index);
         let smooth = fraction * fraction * (3.0 - 2.0 * fraction);
-        let knee_radius = (0.052 * self.thigh_girth * self.scale)
-            .min(knee.x.abs() - MIN_MEDIAL_HALF_GAP * self.scale);
+        let (knee_centre, knee_radius) = self.transverse_section(
+            side, knee.x, 0.068 * self.thigh_girth * self.scale,
+        );
         let target = Vec3::new(
-            knee.x + cos * knee_radius,
+            knee_centre + cos * knee_radius,
             knee.y,
-            sin * 0.064 * self.thigh_girth * self.scale - 0.010 * self.scale,
+            sin * 0.084 * self.thigh_girth * self.scale - 0.010 * self.scale,
         );
         let mut point = origin.lerp(target, smooth);
         point.y = origin.y * (1.0 - fraction) + knee.y * fraction;
 
         let bulge = (PI * fraction).sin().max(0.0);
+        // Full thigh thickness grows along the *whole* shaft. Regional
+        // muscle detail is a secondary contour, not the primary girth effect.
         let muscle = (0.70 + 0.60 * self.musculature)
             * self.thigh_girth * self.scale;
         let anterior = sin.max(0.0);
         let posterior = (-sin).max(0.0);
         let lateral = (side * cos).max(0.0);
         let medial = (-side * cos).max(0.0);
-        point.z += (0.016 * anterior.powi(2) - 0.013 * posterior.powi(2))
+        point.z += (0.012 * anterior.powi(2) - 0.012 * posterior.powi(2))
             * bulge * muscle;
-        point.x += side * (0.008 * lateral.powi(2) * bulge
-            - 0.005 * medial.powi(2) * bulge * (1.0 - fraction))
-            * muscle;
+        let vastus = 0.006 * lateral.powi(2) * bulge * muscle;
+        // Adductors round the proximal inner thigh, but their displacement
+        // must not push either leg through the other at extreme girth.
+        let adductor = 0.009 * medial.powi(2) * bulge
+            * (1.0 - fraction) * muscle;
+        point.x += side * vastus - side * adductor;
+        let medial_limit = MIN_MEDIAL_HALF_GAP * self.scale;
+        if side * point.x < medial_limit {
+            point.x = side * medial_limit;
+        }
         point
     }
 
@@ -436,6 +463,56 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
+    fn girth_uniformly_expands_front_back_and_outer_thigh_from_root_to_knee() {
+        for hip_width in [0.8, 1.0, 1.25] {
+            let mut normal = Recipe::default();
+            normal.morphology.hip_width = hip_width;
+            let mut enlarged = normal.clone();
+            enlarged.morphology.thigh_girth = 1.4;
+            let small = Dimensions::from(&normal);
+            let big = Dimensions::from(&enlarged);
+            for side in [-1.0_f32, 1.0] {
+                for fraction in [0.0, 0.18, 0.42, 0.70, 1.0] {
+                    let extent = |d: Dimensions| {
+                        let points: Vec<Vec3> = (0..THIGH_RING_COUNT)
+                            .map(|index| d.thigh_point(
+                                side, index, d.root(side, index), d.knee(side), fraction
+                            )).collect();
+                        let outside = points.iter().map(|p| side * p.x)
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        let front = points.iter().map(|p| p.z)
+                            .fold(f32::NEG_INFINITY, f32::max);
+                        let back = points.iter().map(|p| p.z)
+                            .fold(f32::INFINITY, f32::min);
+                        (outside, front - back)
+                    };
+                    let (small_outside, small_depth) = extent(small);
+                    let (big_outside, big_depth) = extent(big);
+                    assert!(
+                        big_outside > small_outside + 0.020 * big.scale,
+                        "No lateral girth growth: hip={hip_width} side={side} t={fraction}"
+                    );
+                    assert!(
+                        big_depth > small_depth * 1.20,
+                        "No front/back girth growth: hip={hip_width} side={side} t={fraction}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn medial_clearance_keeps_lateral_expansion_when_saturated() {
+        let d = Dimensions::from(&Recipe::default());
+        let (small_center, small_radius) =
+            d.transverse_section(1.0, 0.105, 0.07);
+        let (big_center, big_radius) =
+            d.transverse_section(1.0, 0.105, 0.135);
+        assert!(big_center + big_radius > small_center + small_radius + 0.060);
+        assert!(big_center - big_radius >= MIN_MEDIAL_HALF_GAP * d.scale - 1e-6);
+    }
+
+    #[test]
     fn supported_girth_stance_and_hip_extremes_keep_thighs_separate() {
         for width in [0.8, 1.0, 1.25] {
             for girth in [0.7, 1.0, 1.4] {
@@ -615,7 +692,7 @@ mod tests {
             let lateral = root.iter().map(|p| side * p.x)
                 .fold(f32::NEG_INFINITY, f32::max);
             // Waist is ~0.159 m wide at the neutral hip section.
-            assert!((0.159..0.179).contains(&lateral));
+            assert!((0.19..0.23).contains(&lateral));
             let outer_y = root.iter()
                 .filter(|p| side * p.x > 0.14)
                 .map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
