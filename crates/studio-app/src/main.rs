@@ -31,8 +31,9 @@ impl Camera {
 
     fn for_anatomy(height: f32) -> Self {
         let scale = height / 1.75;
-        Self { yaw: 0.38, pitch: 0.12, distance: 1.72 * scale,
-            target: Vec3::Y * (0.65 * scale) }
+        // Frame neck through upper thighs rather than just the pelvic study.
+        Self { yaw: 0.38, pitch: 0.10, distance: 2.72 * scale,
+            target: Vec3::Y * (0.98 * scale) }
     }
 
     fn basis(&self) -> Basis {
@@ -396,7 +397,9 @@ impl StudioApp {
                 self.recipe = recipe;
                 self.saved = self.recipe.clone();
                 self.recipe_path = Some(path);
-                self.camera = Camera::framed(self.recipe.height);
+                self.camera = if self.show_anatomy_target {
+                    Camera::for_anatomy(self.recipe.height)
+                } else { Camera::framed(self.recipe.height) };
                 self.pose = PreviewPose::default();
                 self.notice = None;
                 self.regenerate();
@@ -466,7 +469,7 @@ impl StudioApp {
         ui.heading("Models");
         ui.separator();
         // Model types will grow beyond humanoids; only the humanoid generator exists today.
-        ui.label("Humanoid / pelvis + upper thighs");
+        ui.label("Humanoid / torso + upper thighs");
 
         ui.add_space(16.0);
         ui.label("Model name");
@@ -658,7 +661,7 @@ impl eframe::App for StudioApp {
             });
             if pose_changed { self.regenerate(); }
             } else {
-                ui.label("Continuous blended anatomy • temporary triangulated preview • no rig or topology fitting");
+                ui.label("Torso + pelvis + upper arms/thighs • anatomical surface target • not rigged");
             }
             ui.add_space(6.0);
             let selected = if self.show_anatomy_target {
