@@ -3,7 +3,7 @@
 - Use a standalone Rust workspace and native eframe/egui desktop app following `envmoddesigner` conventions. Do not couple the tool to Unity.
 - `studio-core` owns all procedural geometry, versioned recipes, skeleton and influence calculations, validation and exports. The UI must never implement body generation.
 - Preserve the **canonical vertex indexing and triangle connectivity across every recipe value**. Any topology migration must use an explicitly versioned generator, never silently change an existing recipe.
-- Keep the 19-joint named skeleton and parent indices stable for this generator. A skeleton adjustment must not implicitly break recipe compatibility.
+- Keep generator v1/v2 on their original 19-joint skeleton and generator v3 on its separate 21-joint hierarchy with clavicles. Never silently remap rig indices in saved recipes. A skeleton adjustment must not implicitly break recipe compatibility.
 - Do not claim the generated implicit-field triangles are animation-ready retopology. Surface topology and influence quality still require real animation evaluation.
 - Validate all recipe input, reject unsupported versions, and present explicit errors; do not silently substitute unrelated geometry.
 - Save recipes atomically, protect unsaved changes, keep previews and exports consistent.
@@ -17,3 +17,6 @@
 - Generator v1 and v2 must keep separate canonical reference meshes. Never redirect an older saved recipe to the newer surface; preserve mesh vertex order, triangle indices and rig metadata version for legacy v1.
 - Generator v2 adds simple facial features and improved body silhouette. Treat it as anatomical reference geometry, not a finished face or animation-ready retopology.
 - Keep the top-right preview statistics panel consistent with envmoddesigner. The preview uses the raw triangle mesh path (not anti-aliased convex polygons) and smoothly interpolated per-vertex normals.
+
+- Generator v3 revises only the upper torso/shoulder field and uses a 42×76×28 sampling grid with a regression budget below 26k triangles. Do not replace the v1/v2 fields, mesh arrays or rest skeletons.
+- Chest shape should follow the sternum, clavicle, fan-shaped pectoralis and axilla, and shoulders should taper from acromion to humerus without detached spherical deltoids. See `docs/HUMANOID_SHOULDER_V3.md`.
