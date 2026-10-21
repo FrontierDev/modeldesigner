@@ -516,6 +516,40 @@ mod tests {
     }
 
     #[test]
+    fn every_thigh_cross_section_vertex_expands_radially_with_girth() {
+        for width in [0.8, 1.0, 1.25] {
+            let mut small_recipe = Recipe::default();
+            small_recipe.morphology.hip_width = width;
+            let mut large_recipe = small_recipe.clone();
+            large_recipe.morphology.thigh_girth = 1.4;
+            let small = Dimensions::from(&small_recipe);
+            let large = Dimensions::from(&large_recipe);
+            for side in [-1.0_f32, 1.0] {
+                for fraction in [0.0, 0.18, 0.42, 0.70, 1.0] {
+                    let ring = |d: Dimensions| -> Vec<Vec3> {
+                        (0..THIGH_RING_COUNT).map(|i| d.thigh_point(
+                            side, i, d.root(side, i), d.knee(side), fraction,
+                        )).collect()
+                    };
+                    let normal = ring(small);
+                    let thick = ring(large);
+                    let center = |points: &[Vec3]| {
+                        points.iter().copied().sum::<Vec3>() / points.len() as f32
+                    };
+                    let a = center(&normal);
+                    let b = center(&thick);
+                    for (index, (p, q)) in normal.iter().zip(&thick).enumerate() {
+                        let before = Vec3::new(p.x - a.x, 0.0, p.z - a.z).length();
+                        let after = Vec3::new(q.x - b.x, 0.0, q.z - b.z).length();
+                        assert!(after > before * 1.10,
+                            "Thigh girth failed at hip={width}, side={side}, t={fraction}, vertex={index}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn medial_clearance_keeps_lateral_expansion_when_saturated() {
         let d = Dimensions::from(&Recipe::default());
         let (small_center, small_radius) =
