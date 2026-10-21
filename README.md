@@ -62,6 +62,8 @@ The lower body is now constructed **leg-first**. Two anatomically tilted 12-vert
 
 The current pelvic contour refinement reduces the abrupt outer-hip flare and eases the slope into the crotch. The same thigh loops now form anterior quadriceps, posterior hamstrings, lateral vastus and proximal medial adductor contours, tapering smoothly back to the existing knee boundary. A mild anterior pubic contour and posterior gluteal fullness are applied only to the free pelvic patch vertices; the waist and thigh seams remain fixed.
 
+**Maximum thigh-girth correction:** The 12-vertex thigh sockets now use the corresponding rectangular patch perimeter directions rather than treating the vertices as evenly spaced in angle. Their left and right contours are exact mirrors. Two waist-pelvis corner quads use fixed alternative triangulation diagonals to remove sharply conflicting face normals, and a 25 mm per-side medial clearance at reference height keeps extreme thigh/hip/stance combinations from crossing the centreline. The authored 720-vertex/656-quad surface remains unchanged.
+
 Six existing parameters are activated: hip width, pelvis tilt, glute volume, thigh girth, stance width and provisional upper-leg length. Bone chains now include hip and knee landmarks on each side. See [the pelvis and upper-leg implementation](docs/PELVIS_UPPER_LEGS.md) for details.
 
 **CI is manual-only** (`workflow_dispatch`). No automatic GitHub Actions runs occur on commits. Local Rust checks may be run with `cargo check --workspace` and `cargo test --workspace`; the code is not considered runtime-verified until these succeed.

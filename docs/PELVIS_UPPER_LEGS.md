@@ -71,6 +71,16 @@ cargo run -p modeldesigner --release
 
 Inspect front, side, rear and three-quarter silhouettes in both solid and wireframe, including extreme hip-width, thigh-girth and musculature combinations. Hip posing and corrective skinning should remain out of scope until the neutral silhouette is accepted.
 
+## Thigh-socket mapping and maximum-girth regression
+
+The 12 vertices around each 2×4 grid hole are **not** uniformly spaced around its perimeter. The previous code treated them as 12 equal angular increments, which introduced a lateral/front-back correspondence error and caused the groin to bunch into diagonal creases. The socket perimeter now maps its local grid coordinates to the normalized thigh cross-section. Mirrored root vertices on the left and right match exactly.
+
+Two corner quads connecting the upper pelvic surface to the waist have three waist-boundary vertices. Their former render-only diagonal produced adjacent triangle normals pointing in conflicting directions (dot products below zero) under high thigh girth. Those two corner cells use a **fixed alternate diagonal**, independent of parameter values, leaving the quad layout unchanged.
+
+The proximal thigh root and knee radii also obey a 25 mm per-side medial half-gap at reference height. Wider thighs retain proportional front/back girth and lateral upper-leg shaping without letting the inner contours cross the body's centreline under supported hip and stance extremes.
+
+Rust tests now cover symmetric socket roots, stable corner triangulation and normal agreement across thigh-girth limits, and a sampled minimum clearance for hip width, thigh girth and stance width. A local independent Python reproduction of the geometry across 36 combinations of hip width (0.8/1/1.25), girth (0.7/1/1.4), tilt (0/1) and stance (0.8/1.2) found no degenerate triangles or unmatched directed edges, with the worst internal quad-normal agreement remaining positive after the fixed diagonal change. This is **not a verified Rust build or viewport acceptance test**.
+
 ## Run local checks
 
 ```powershell
