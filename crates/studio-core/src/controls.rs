@@ -54,6 +54,7 @@ pub enum BuildSection {
     Physique,
     HeadNeck,
     Torso,
+    Pelvis,
     Chest,
     Shoulders,
     Neck,
@@ -109,6 +110,12 @@ impl BuildControl {
             | BuildParameter::TricepsVolume
             | BuildParameter::ElbowWidth
             | BuildParameter::ArmTaper
+            | BuildParameter::LegLength
+            | BuildParameter::HipWidth
+            | BuildParameter::PelvisTilt
+            | BuildParameter::GluteVolume
+            | BuildParameter::ThighGirth
+            | BuildParameter::StanceWidth
         )
     }
 
@@ -144,6 +151,12 @@ impl BuildControl {
             BuildParameter::TricepsVolume => "Posterior muscle bulge along the upper-arm surface.",
             BuildParameter::ElbowWidth => "Width of the temporary elbow-end loop.",
             BuildParameter::ArmTaper => "How rapidly the arm narrows toward the elbow.",
+            BuildParameter::LegLength => "Upper-leg length from the hip to the provisional knee boundary.",
+            BuildParameter::HipWidth => "Lateral width of the pelvic girdle and hip socket spacing.",
+            BuildParameter::PelvisTilt => "Forward/backward pelvic inclination around the hip girdle.",
+            BuildParameter::GluteVolume => "Posterior volume around the buttocks and lower pelvis.",
+            BuildParameter::ThighGirth => "Overall upper-leg circumference.",
+            BuildParameter::StanceWidth => "Lateral separation of the knees relative to the hip joints.",
             _ => "Not available until the corresponding anatomy is implemented.",
         }
     }
@@ -249,6 +262,7 @@ impl BuildSection {
             Self::Proportions => "proportions",
             Self::Physique => "physique",
             Self::Torso => "torso",
+            Self::Pelvis => "pelvis",
             Self::Chest => "chest",
             Self::Shoulders => "shoulders",
             Self::Neck => "neck",
@@ -304,7 +318,7 @@ pub const BUILD_CONTROLS: [BuildControl; 43] = [
         display_scale: 100.0, suffix: "%", player_editable: true
     },
     BuildControl {
-        parameter: BuildParameter::LegLength, section: BuildSection::Proportions,
+        parameter: BuildParameter::LegLength, section: BuildSection::Legs,
         id: "leg_length", label: "Leg length",
         min: 0.82, max: 1.18, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: true
@@ -388,19 +402,19 @@ pub const BUILD_CONTROLS: [BuildControl; 43] = [
         display_scale: 100.0, suffix: "%", player_editable: false
     },
     BuildControl {
-        parameter: BuildParameter::HipWidth, section: BuildSection::Legs,
+        parameter: BuildParameter::HipWidth, section: BuildSection::Pelvis,
         id: "hip_width", label: "Hip width",
         min: 0.8, max: 1.25, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: true
     },
     BuildControl {
-        parameter: BuildParameter::PelvisTilt, section: BuildSection::Legs,
+        parameter: BuildParameter::PelvisTilt, section: BuildSection::Pelvis,
         id: "pelvis_tilt", label: "Pelvis tilt",
         min: 0.0, max: 1.0, default: 0.5,
         display_scale: 100.0, suffix: "%", player_editable: false
     },
     BuildControl {
-        parameter: BuildParameter::GluteVolume, section: BuildSection::Legs,
+        parameter: BuildParameter::GluteVolume, section: BuildSection::Pelvis,
         id: "glute_volume", label: "Glute volume",
         min: 0.0, max: 1.0, default: 0.5,
         display_scale: 100.0, suffix: "%", player_editable: true

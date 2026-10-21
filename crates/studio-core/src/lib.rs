@@ -266,7 +266,7 @@ mod tests {
         let reference = generate(&Recipe::default()).unwrap();
         let active: Vec<BuildControl> = BUILD_CONTROLS.iter().copied()
             .filter(|control| control.implemented()).collect();
-        assert_eq!(active.len(), 29);
+        assert_eq!(active.len(), 35);
         for control in active {
             assert_ne!(control.description(),
                 "Not available until the corresponding anatomy is implemented.");
@@ -298,7 +298,7 @@ mod tests {
         let schema: serde_json::Value =
             serde_json::from_str(&controls::build_schema_json().unwrap()).unwrap();
         let sliders = schema["controls"].as_array().unwrap();
-        assert_eq!(sliders.len(), 29);
+        assert_eq!(sliders.len(), 35);
         assert!(sliders.iter().all(|control| control["description"].as_str()
             .is_some_and(|description| !description.is_empty())));
     }
@@ -521,7 +521,7 @@ mod tests {
     #[test]
     fn unimplemented_controls_fail_explicitly() {
         let mut recipe = Recipe::default();
-        recipe.leg_length = 1.10;
+        recipe.morphology.forearm_girth = 1.10;
         assert!(recipe.validate().unwrap_err().contains("not implemented"));
     }
 

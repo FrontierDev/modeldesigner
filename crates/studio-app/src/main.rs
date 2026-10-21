@@ -414,6 +414,8 @@ impl StudioApp {
             (BuildSection::Chest, "Chest & pectorals"),
             (BuildSection::Shoulders, "Shoulders & deltoids"),
             (BuildSection::Arms, "Upper arms"),
+            (BuildSection::Pelvis, "Pelvis"),
+            (BuildSection::Legs, "Upper legs"),
         ] {
             let visible: Vec<BuildControl> = BUILD_CONTROLS.iter().copied()
                 .filter(|control| control.section == section
