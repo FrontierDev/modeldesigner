@@ -27,6 +27,7 @@ struct Dimensions {
     pelvis_tilt: f32,
     glute_volume: f32,
     body_mass: f32,
+    musculature: f32,
 }
 
 impl From<&Recipe> for Dimensions {
@@ -42,6 +43,7 @@ impl From<&Recipe> for Dimensions {
             pelvis_tilt: m.pelvis_tilt,
             glute_volume: m.glute_volume,
             body_mass: recipe.body_mass,
+            musculature: recipe.musculature,
         }
     }
 }
@@ -72,22 +74,69 @@ impl Dimensions {
         let cos = phi.cos();
         let sin = phi.sin();
         let centre_x = side * 0.100 * self.hip_width * self.scale;
-        let radius_x = (0.083 * self.thigh_girth
+        // Seat the greater-trochanter contour just outside the waist, not
+        // a pronounced lateral hip shelf. Keep a safe medial crotch gap.
+        let radius_x = (0.074 * self.thigh_girth
             * (1.0 + 0.10 * (self.body_mass - 0.5)) * self.scale)
             .min(centre_x.abs() * 0.87);
-        let radius_z = 0.113 * self.thigh_girth
+        let radius_z = 0.106 * self.thigh_girth
             * (1.0 + 0.12 * (self.body_mass - 0.5))
             * self.scale;
         let outward = side * cos;
+        let anterior = sin.max(0.0);
+        let posterior = (-sin).max(0.0);
         Vec3::new(
             centre_x + cos * radius_x,
-            self.y(0.655) + (0.094 * outward
-                + 0.032 * (self.pelvis_tilt - 0.5) * sin) * self.scale,
-            sin * radius_z - (0.012
-                + 0.035 * (self.glute_volume - 0.5) * (-sin).max(0.0))
-                * self.scale,
+            self.y(0.665) + (0.077 * outward
+                + 0.028 * (self.pelvis_tilt - 0.5) * sin) * self.scale,
+            sin * radius_z
+                + (0.008 * anterior.powi(2)
+                    - 0.011 * posterior.powi(2)
+                    - 0.009
+                    - 0.042 * (self.glute_volume - 0.5) * posterior)
+                    * self.scale,
         )
     }
+    /// Neutral thigh loft from a fixed proximal contour to the knee.
+    ///
+    /// Regional bulges fade to zero at both boundaries: quadriceps anterior,
+    /// hamstrings posterior, vastus lateralis externally, and adductors on
+    /// the proximal medial side. No extra geometry or floating muscle shells.
+    fn thigh_point(
+        self,
+        side: f32,
+        index: usize,
+        origin: Vec3,
+        knee: Vec3,
+        fraction: f32,
+    ) -> Vec3 {
+        let phi = -3.0 * PI / 4.0 + TAU * index as f32 / THIGH_RING_COUNT as f32;
+        let sin = phi.sin();
+        let cos = phi.cos();
+        let smooth = fraction * fraction * (3.0 - 2.0 * fraction);
+        let target = Vec3::new(
+            knee.x + cos * 0.052 * self.thigh_girth * self.scale,
+            knee.y,
+            sin * 0.064 * self.thigh_girth * self.scale - 0.010 * self.scale,
+        );
+        let mut point = origin.lerp(target, smooth);
+        point.y = origin.y * (1.0 - fraction) + knee.y * fraction;
+
+        let bulge = (PI * fraction).sin().max(0.0);
+        let muscle = (0.70 + 0.60 * self.musculature)
+            * self.thigh_girth * self.scale;
+        let anterior = sin.max(0.0);
+        let posterior = (-sin).max(0.0);
+        let lateral = (side * cos).max(0.0);
+        let medial = (-side * cos).max(0.0);
+        point.z += (0.016 * anterior.powi(2) - 0.013 * posterior.powi(2))
+            * bulge * muscle;
+        point.x += side * (0.008 * lateral.powi(2) * bulge
+            - 0.005 * medial.powi(2) * bulge * (1.0 - fraction))
+            * muscle;
+        point
+    }
+
 }
 
 pub fn joint_positions(recipe: &Recipe, side: f32) -> (Vec3, Vec3) {
@@ -212,17 +261,27 @@ fn fit_pelvis(
             mesh.vertices[id] = before[id].lerp(average, 0.72);
         }
     }
-    // Rounded posterior gluteal mass. Apply it only to unconstrained vertices;
-    // boundary curves and connected thigh seam positions are exact.
+    // Pelvic contour refinement on *free* interior vertices only. The
+    // original waist and curved thigh-root seams remain exact. Gradual
+    // posterior gluteal volume and a shallow anterior pubic contour prevent
+    // an abrupt shelf at the greater trochanter or a sharp central V.
     for &id in &free {
         let p = mesh.vertices[id];
-        let posterior = (-p.z / (0.12 * dimensions.scale)).max(0.0);
-        let near_hip = (1.0
-            - ((p.x.abs() - 0.108 * dimensions.hip_width * dimensions.scale).abs()
-                / (0.108 * dimensions.hip_width * dimensions.scale)))
+        let posterior = (-p.z / (0.12 * dimensions.scale))
             .clamp(0.0, 1.0);
-        mesh.vertices[id].z -= 0.018 * (0.65 + 0.7 * dimensions.glute_volume)
-            * posterior * near_hip * dimensions.scale;
+        let anterior = (p.z / (0.12 * dimensions.scale))
+            .clamp(0.0, 1.0);
+        let hip_x = 0.100 * dimensions.hip_width * dimensions.scale;
+        let lateral_hip = (1.0 - (p.x.abs() - hip_x).abs() / hip_x)
+            .clamp(0.0, 1.0);
+        let centre = (1.0 - p.x.abs() / hip_x).clamp(0.0, 1.0);
+        let lower = (1.0 - (p.y - dimensions.y(0.665)).abs()
+            / (0.14 * dimensions.scale)).clamp(0.0, 1.0);
+        mesh.vertices[id].z += dimensions.scale * (
+            -0.013 * (0.65 + 0.70 * dimensions.glute_volume)
+                * posterior * lateral_hip * lower
+            + 0.007 * anterior * centre.powi(2) * lower
+        );
     }
     Ok(())
 }
@@ -321,20 +380,12 @@ pub fn append(
         // Anatomical thigh surfaces grow continuously *from* the socket ring.
         // The curved socket is high laterally and low at the inner crotch.
         for (band, fraction) in [0.18_f32, 0.42, 0.70, 1.0].into_iter().enumerate() {
-            let blend = fraction * fraction * (3.0 - 2.0 * fraction);
             let roots: Vec<Vec3> = root.iter()
                 .map(|&id| mesh.vertices[id as usize]).collect();
-            let next = mesh.loop_vertices(roots.into_iter().enumerate().map(|(i, origin)| {
-                let phi = -3.0 * PI / 4.0 + TAU * i as f32 / THIGH_RING_COUNT as f32;
-                let target = Vec3::new(
-                    knee.x + phi.cos() * 0.052 * d.thigh_girth * d.scale,
-                    knee.y,
-                    phi.sin() * 0.064 * d.thigh_girth * d.scale - 0.010 * d.scale,
-                );
-                let mut point = origin.lerp(target, blend);
-                point.y = origin.y * (1.0 - fraction) + knee.y * fraction;
-                point
-            }));
+            let next = mesh.loop_vertices(
+                roots.into_iter().enumerate()
+                    .map(|(i, origin)| d.thigh_point(side, i, origin, knee, fraction))
+            );
             if previous.iter().zip(&next).any(|(&a, &b)| {
                 mesh.vertices[b as usize].y >= mesh.vertices[a as usize].y - 1.0e-5
             }) {
@@ -432,6 +483,71 @@ mod tests {
                         .fold(f32::INFINITY, f32::min));
                 }
             }
+        }
+    }
+
+    #[test]
+    fn neutral_hip_contour_and_crotch_gap_have_anatomical_bounds() {
+        let d = Dimensions::from(&Recipe::default());
+        for side in [-1.0_f32, 1.0] {
+            let root: Vec<Vec3> = (0..THIGH_RING_COUNT)
+                .map(|i| d.root(side, i)).collect();
+            let lateral = root.iter().map(|p| side * p.x)
+                .fold(f32::NEG_INFINITY, f32::max);
+            // Waist is ~0.159 m wide at the neutral hip section.
+            assert!((0.159..0.179).contains(&lateral));
+            let outer_y = root.iter()
+                .filter(|p| side * p.x > 0.14)
+                .map(|p| p.y).fold(f32::NEG_INFINITY, f32::max);
+            let inner_y = root.iter()
+                .filter(|p| side * p.x < 0.06)
+                .map(|p| p.y).fold(f32::INFINITY, f32::min);
+            assert!(outer_y - inner_y > 0.12);
+        }
+        let left_inner = (0..THIGH_RING_COUNT)
+            .map(|i| d.root(-1.0, i).x).fold(f32::NEG_INFINITY, f32::max);
+        let right_inner = (0..THIGH_RING_COUNT)
+            .map(|i| d.root(1.0, i).x).fold(f32::INFINITY, f32::min);
+        assert!(right_inner - left_inner > 0.045);
+    }
+
+    #[test]
+    fn thigh_anatomical_profiles_shape_front_back_and_medial_surface() {
+        let d = Dimensions::from(&Recipe::default());
+        let side = 1.0;
+        let knee = d.knee(side);
+        let fraction = 0.42_f32;
+        // Match vertices with positive (front) and negative (rear) Z.
+        let front_i = 5; // positive sine on this ring
+        let back_i = 1;  // negative sine on this ring
+        let front_rest = d.root(side, front_i);
+        let back_rest = d.root(side, back_i);
+        let front = d.thigh_point(side, front_i, front_rest, knee, fraction);
+        let back = d.thigh_point(side, back_i, back_rest, knee, fraction);
+        let unshaped = |index: usize, origin: Vec3| {
+            let angle = -3.0 * PI / 4.0 + TAU * index as f32 / THIGH_RING_COUNT as f32;
+            let t = fraction * fraction * (3.0 - 2.0 * fraction);
+            let target = Vec3::new(
+                knee.x + angle.cos() * 0.052 * d.thigh_girth * d.scale,
+                knee.y,
+                angle.sin() * 0.064 * d.thigh_girth * d.scale - 0.010 * d.scale,
+            );
+            origin.lerp(target, t)
+        };
+        assert!(front.z > unshaped(front_i, front_rest).z);
+        assert!(back.z < unshaped(back_i, back_rest).z);
+
+        let mut muscular = Recipe::default();
+        muscular.musculature = 1.0;
+        let stronger = Dimensions::from(&muscular);
+        assert!(stronger.thigh_point(side, front_i, stronger.root(side, front_i),
+            stronger.knee(side), fraction).z > front.z);
+        // Knee endpoint remains exactly identical to the unshaped loft,
+        // so downstream shin patches can join the same boundary.
+        for index in 0..THIGH_RING_COUNT {
+            let source = d.root(side, index);
+            let neutral_end = d.thigh_point(side, index, source, knee, 1.0);
+            assert!((neutral_end.y - knee.y).abs() < 1e-6);
         }
     }
 
