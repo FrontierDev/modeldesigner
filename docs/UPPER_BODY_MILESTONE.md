@@ -27,10 +27,12 @@ Prove that a human-like torso and upper arms can be **constructed procedurally f
 - Two intermediate anatomical rings soften the sharp transition between the rectangular logical torso patch opening and the elliptical deltoid.
 - A shallow anterior pectoral plane tapers toward the axilla; the medial sternum has a slight depression.
 - The wireframe viewport displays the authored quad boundaries, not internal preview triangle diagonals.
-- Non-persistent pose controls rotate shoulder-patch loops progressively from the torso seam toward the elbow. Raise: 0–70°; forward reach: 0–55°.
-- The neutral rig and mesh, not the posed preview, are exported.
+- Non-persistent **independent left and right** shoulder controls: Raise 0–70°, Forward reach 0–55°. The mesh is now deformed with hierarchical **linear-blend skinning** driven by the 10-joint skeleton rather than manually rotating generated rings.
+- Skin weights are authored per torso and shoulder loop. Clavicles contribute to deltoid transition weights, while the sewn torso boundary is chest-bound.
+- Joint-world transforms, inverse bind matrices, linear-blend skinning, recomputed normals and bounded local shoulder-volume correction live in the core pipeline.
+- The neutral rig and mesh, not the posed preview, are exported; inverse bind matrices are included in the rig JSON.
 - Rust tests check mesh closure, face-index determinism, bone count, pose geometry and reference influences.
-- An independent Python reproduction of the geometric construction yielded 580 vertices, 512 quads and 1,120 triangles and confirmed oriented manifold edges and non-degenerate triangles at the neutral, 45° raise, 40° reach, 65°/45° and 70°/55° combinations. This is **not a substitute for Rust compilation or visual animation tests**.
+- An independent numerical simulation of the new hierarchical-skinning transforms and per-ring weights checked neutral, left-only, right-only and combined extreme poses. No degenerate triangles were detected in those sampled configurations. This is **not a substitute for Rust compilation or visual animation tests**.
 
 ## Remaining shortcomings
 
@@ -38,7 +40,7 @@ This study is **not yet an anatomical human model**. The shoulder openings are s
 
 ## Next milestone
 
-Use the new interactive raise/reach preview to inspect the armpit, pectoral-to-deltoid roll and clavicle region from multiple angles. Refine the authored shoulder transition contours and add real bone skinning plus corrective deformation, then validate raised-arm, forward reach and torso rotation. Only after that should we expand to neck/head, pelvis and remaining limbs. Once successful, expand the same machinery to neck/head, pelvis and remaining limbs.
+Use the independent shoulder controls to inspect armpit pinching, chest volume, clavicle movement and left/right symmetry from multiple views. Validate with actual animations and assess volume-preserving skinning improvements before extending the anatomy to the pelvis, legs, neck and head. Once successful, expand the same machinery to neck/head, pelvis and remaining limbs.
 
 ## Tests
 

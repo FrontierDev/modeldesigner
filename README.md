@@ -19,7 +19,9 @@ Ten working sliders: height, shoulder width, arm length, torso length, shoulder 
 
 The updated shoulder connection adds intermediate **transition and deltoid-insertion loops**, allowing the torso-to-upper-arm cross-section to change more gradually. The first study now contains **580 vertices, 512 quads and 1,120 render triangles** in its neutral configuration. Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
 
-The preview toolbar includes non-persistent **Raise (0–70°)** and **Forward (0–55°)** controls. These evaluate a progressive shoulder-patch rotation and matching elbow landmarks to expose poor deformation. **These are topology stress tests, not final skeletal skinning.** Saving a recipe or exporting OBJ/rig metadata always uses the neutral reference regardless of the current preview pose.
+The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Local corrective displacement restores limited lost shoulder-loop radius during blended rotations.
+
+**These are skeletal deformation tests, not a fully animation-ready character rig.** Recipe and OBJ/rig exports remain neutral, with inverse bind matrices and reference weights included in the rig metadata.
 
 The mesh primarily contains quads and exports quad faces in OBJ. The preview triangulates those faces for drawing; end caps are triangles. A built-in check requires finite, nondegenerate, closed, consistently oriented geometry.
 
