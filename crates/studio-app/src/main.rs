@@ -57,6 +57,7 @@ fn project(p: Vec3, basis: &Basis, rect: Rect) -> Option<(Pos2, f32)> {
     Some((rect.center() + egui::vec2(x, -y), depth))
 }
 
+#[derive(Clone, Copy)]
 struct Face {
     points: [Pos2; 3],
     depth: f32,
@@ -403,7 +404,7 @@ mod preview_tests {
         let face = Face { points, depth: 2.0, color: Color32::GRAY };
         let mesh = triangle_mesh(&[face]);
         assert!(mesh.is_valid());
-        assert_eq!(mesh.indices, [0, 1, 2]);
+        assert_eq!(mesh.indices.as_slice(), &[0, 1, 2]);
         assert_eq!(mesh.vertices.len(), 3);
         for (actual, expected) in mesh.vertices.iter().zip(points.iter()) {
             assert_eq!(actual.pos, *expected);
