@@ -40,7 +40,7 @@ fn relax_masked_vertices(
         }
 
         let mut neighbours = vec![Vec::<usize>::new(); vertices.len()];
-        for &[a, b, c, d] in &quads {
+        for &[a, b, c, d] in quads {
             for (u, v) in [(a, b), (b, c), (c, d), (d, a)] {
                 let u = u as usize;
                 let v = v as usize;
