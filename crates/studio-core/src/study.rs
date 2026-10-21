@@ -185,6 +185,41 @@ pub struct BuiltStudy {
     pub corrective_rings: Vec<ShoulderRing>,
 }
 
+/// Preserve shoulder loop volume after linear-blend skinning; the sewn torso
+/// rim remains fixed. This is a bounded local corrective, not a collision solver.
+pub fn preserve_shoulder_volume(
+    study: &BuiltStudy,
+    posed_vertices: &mut [Vec3],
+    matrices: &[glam::Mat4],
+    pose: PreviewPose,
+) -> Result<(), String> {
+    use crate::skinning::skin_point;
+    if posed_vertices.len() != study.surface.vertices.len() {
+        return Err("Corrective surface length differs from neutral mesh".into());
+    }
+    for ring in &study.corrective_rings {
+        if ring.strength == 0.0 { continue; }
+        let arm = if ring.side < 0.0 { pose.left } else { pose.right };
+        let intensity = (arm.raise_deg / 70.0).max(arm.forward_deg / 55.0).clamp(0.0, 1.0);
+        if intensity == 0.0 { continue; }
+        let posed_centre = skin_point(ring.centre, &ring.region_weights, matrices)?;
+        for &vertex in &ring.vertices {
+            let index = vertex as usize;
+            let rest_radius = (study.surface.vertices[index] - ring.centre).length();
+            let offset = posed_vertices[index] - posed_centre;
+            let current_radius = offset.length();
+            if current_radius < 1e-6 || !current_radius.is_finite() {
+                return Err("Collapsed shoulder loop during pose deformation".into());
+            }
+            let target = rest_radius * 0.96;
+            let deficit = (target - current_radius).max(0.0);
+            let shift = deficit * ring.strength * intensity;
+            posed_vertices[index] += offset / current_radius * shift.min(0.012);
+        }
+    }
+    Ok(())
+}
+
 fn arm_ring(
     builder: &mut MeshBuilder,
     hole: &[u32],
