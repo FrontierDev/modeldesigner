@@ -81,6 +81,25 @@ The proximal thigh root and knee radii also obey a 25 mm per-side medial half-ga
 
 Rust tests now cover symmetric socket roots, stable corner triangulation and normal agreement across thigh-girth limits, and a sampled minimum clearance for hip width, thigh girth and stance width. A local independent Python reproduction of the geometry across 36 combinations of hip width (0.8/1/1.25), girth (0.7/1/1.4), tilt (0/1) and stance (0.8/1.2) found no degenerate triangles or unmatched directed edges, with the worst internal quad-normal agreement remaining positive after the fixed diagonal change. This is **not a verified Rust build or viewport acceptance test**.
 
+## 2026-10-21 — Baseline thigh volume and complete girth response
+
+The previous implementation made **both** thighs too narrow in the neutral preset. At the maximum girth setting, a simple `min()` on lateral thigh radius saturated near the groin and the knee, so much of the requested enlargement was discarded. Small muscle bulges could not compensate for this incorrect underlying circumference.
+
+Anatomical references used for the revision: [Kenhub: Hip and thigh muscles](https://www.kenhub.com/en/library/anatomy/hip-and-thigh-muscles), [Kenhub: Hip adductors](https://www.kenhub.com/en/library/anatomy/the-hip-adductors), and [Kenhub: Hip and thigh anatomy](https://www.kenhub.com/en/library/anatomy/hip-and-thigh-anatomy). They identify the anterior quadriceps mass, posterior hamstrings and substantial medial adductor compartment. These anatomical relationships are represented with smoothly varied contours, not separate muscles.
+
+Implementation:
+
+- Neutral proximal radius increases from 0.074 m to 0.092 m (before the midline-clearance adjustment). Neutral root front/back radius increases from 0.106 m to 0.125 m.
+- The provisional knee-boundary radii increase from 0.052/0.064 m (lateral/depth) to 0.068/0.084 m.
+- A new per-side transverse-section operation calculates the desired **outer boundary first**, then maintains the minimum medial half-gap by translating the surface centre outward as required. It never discards the extra outer volume when thigh girth is high.
+- The entire thigh loft is interpolated between these cross-sections; the previous muscle shapes remain secondary, smoothly varying contours.
+- The anterior pelvic free surface has stronger rounded pubic/adductor fullness and subtle inguinal depressions; the posterior free surface has more gluteal projection. Fixed waist and root-ring vertices do not move under the interior corrective.
+- Anatomical fat/muscle mass is not inferred from an actual human 3D scan: a production reference-body comparison remains necessary before accepting the silhouette.
+
+Tests assert that **every circumferential vertex of every thigh cross-section** expands radially between default and maximum girth for narrow, standard and wide hips. Other tests measure an increase in front/back depth and outer width along the full root-to-knee length, preserve the medial gap, and require manifold closure and stable face topology.
+
+A local independent numerical reproduction of the cross-section equations (not the Rust compiler) found approximately 27–37 mm additional lateral extent per side at thigh girth 1.4 and a 37–40% front/back thickness increase across the five sampled rings. These are geometry diagnostics, not an acceptance claim about the rendered model.
+
 ## Run local checks
 
 ```powershell
