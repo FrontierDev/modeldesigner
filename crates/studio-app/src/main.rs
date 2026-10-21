@@ -503,21 +503,34 @@ impl eframe::App for StudioApp {
                     self.camera = Camera::framed(self.recipe.height);
                 }
             });
+            let mut pose_changed = false;
             ui.horizontal(|ui| {
-                ui.label("Shoulder pose");
-                let changed = ui.add(
-                    egui::Slider::new(&mut self.pose.arm_raise_deg, 0.0..=70.0)
+                ui.label("Left arm");
+                pose_changed |= ui.add(
+                    egui::Slider::new(&mut self.pose.left.raise_deg, 0.0..=70.0)
                         .text("Raise").suffix("°").fixed_decimals(0)
-                ).changed() | ui.add(
-                    egui::Slider::new(&mut self.pose.arm_forward_deg, 0.0..=55.0)
+                ).changed();
+                pose_changed |= ui.add(
+                    egui::Slider::new(&mut self.pose.left.forward_deg, 0.0..=55.0)
                         .text("Forward").suffix("°").fixed_decimals(0)
                 ).changed();
-                if changed { self.regenerate(); }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Right arm");
+                pose_changed |= ui.add(
+                    egui::Slider::new(&mut self.pose.right.raise_deg, 0.0..=70.0)
+                        .text("Raise").suffix("°").fixed_decimals(0)
+                ).changed();
+                pose_changed |= ui.add(
+                    egui::Slider::new(&mut self.pose.right.forward_deg, 0.0..=55.0)
+                        .text("Forward").suffix("°").fixed_decimals(0)
+                ).changed();
                 if ui.button("Reset pose").clicked() {
                     self.pose = PreviewPose::default();
-                    self.regenerate();
+                    pose_changed = true;
                 }
             });
+            if pose_changed { self.regenerate(); }
             ui.add_space(6.0);
             if let Some(model) = self.model.as_ref() {
                 preview(ui, model, &self.recipe, &mut self.camera, self.wireframe, self.show_skeleton);
