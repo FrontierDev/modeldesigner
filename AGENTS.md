@@ -53,3 +53,6 @@
 - The anatomical **target** now includes continuous torso, shoulder, upper-arm and neck fields in `torso_target.rs`, smoothly unioned with the pelvis and thighs in `anatomy.rs`. Do not replace them with a single round torso ellipsoid or separate capsule meshes.
 - Torso-target sections must remain vertically ordered and vary width, anterior/posterior depth and curvature with the existing recipe controls. Preserve a continuous waist-to-pelvis negative field.
 - Preview sampling bounds and default camera must cover the whole neck-to-upper-thigh anatomy under supported size extremes. The geometry remains a **temporary isosurface**, not fixed topology; the existing quad generator and export route must not be altered for this milestone.
+- For torso target sections, use shared, shape-preserving cubic derivatives at every adjacent section. Do not reintroduce per-segment smoothstep with zero tangents at intermediate knots.
+- Couple the upper ribcage envelope and shoulder placement sufficiently to support wide-chest/narrow-shoulder combinations; do not represent the deltoid as a separately unioned sphere.
+- Lower-abdominal target dimensions should respect both waist and hip morphology; iliac volumes must not create an abrupt shelf at the waist.

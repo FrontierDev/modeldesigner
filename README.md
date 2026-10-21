@@ -81,3 +81,7 @@ The current pelvic contour refinement reduces the abrupt outer-hip flare and eas
 Six existing parameters are activated: hip width, pelvis tilt, glute volume, thigh girth, stance width and provisional upper-leg length. Bone chains now include hip and knee landmarks on each side. See [the pelvis and upper-leg implementation](docs/PELVIS_UPPER_LEGS.md) for details.
 
 **CI is manual-only** (`workflow_dispatch`). No automatic GitHub Actions runs occur on commits. Local Rust checks may be run with `cargo check --workspace` and `cargo test --workspace`; the code is not considered runtime-verified until these succeed.
+
+### Anatomical torso refinement
+
+The target now uses shared-tangent cubic interpolation rather than per-band smoothstep. Upper chest breadth and shoulder placement are geometrically coupled, with deltoid shape integrated into a tapered upper arm rather than a separate sphere. Lower-abdominal tissue responds to waist width and depth, and the pelvis/iliac blend has been softened. No new sliders or topology changes were introduced; inspect the resulting appearance in **Anatomy target** mode.

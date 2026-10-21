@@ -79,6 +79,39 @@ cargo run -p modeldesigner --release
 
 On launch, examine the **unified torso-to-pelvis and shoulder-to-arm** target's front, profile and rear silhouettes. Toggle **Landmarks** to inspect the femoral-head/greater-trochanter/pubic regions. Change hip width, glute volume, thigh girth and stance width independently, then in combination. Compare against the original **Topology** preview, particularly at maximum thigh girth.
 
+## Torso smoothing and anatomical coupling refinement
+
+The ten torso sections are retained, but their heightwise shape parameters
+(half-width, anterior/posterior depth and sagittal centre) are now evaluated
+with **piecewise cubic Hermite interpolation using shared shape-preserving
+tangents**. Previously each segment independently applied smoothstep,
+forcing zero slope at every section and producing horizontal bands. The
+new interpolation is continuously differentiable at section joins, with
+horizontal tangents only at genuine extrema.
+
+The anterior chest-width effect diminishes gradually approaching the
+clavicle, while the shoulder attachment also follows upper chest width
+by a smaller amount. This allows a relatively narrow shoulder-width setting
+alongside increased chest width without moving the deltoid joint inside
+an independently widened chest contour. The deltoid is no longer a separate
+spherical primitive: it is a smoothly tapered proximal thickening of the
+continuous upper-arm volume. The smooth union between the arm and
+upper chest has a broader transition region.
+
+At the waist, the lower-abdomen tissue now follows a combination of **waist
+width and hip width** and respects waist depth. The pelvis-core volume
+is positioned slightly lower, the iliac volumes no longer protrude as high
+towards the waist, and the torso–abdomen union is smoother. The existing
+thigh and gluteal regions remain available and the old quad study is not
+changed.
+
+These are visual-target corrections. No extra public sliders, presets,
+regression tests, rigging, or quad-cage fitting were introduced. The
+recommended manual inspection is the default character and the broad-chest,
+narrow-shoulders, expanded-waist, high-musculature combination, including
+front, side and three-quarter views. Native Rust compilation and viewport
+results have not been verified in this environment.
+
 ## Next milestone — not implemented
 
 1. Accept or revise the neutral anatomical target surface based on visual references.
