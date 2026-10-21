@@ -731,7 +731,13 @@ mod tests {
         }));
         let before = waist.iter()
             .map(|&i| mesh.vertices[i as usize]).collect::<Vec<_>>();
+        let upper = mesh.loop_vertices((0..32).map(|i| {
+            let angle = TAU * i as f32 / 32.0;
+            Vec3::new(angle.sin() * 0.151, 0.86, angle.cos() * 0.115)
+        }));
+        mesh.stitch(&waist, &upper).unwrap();
         let crotch = mesh.vertex(Vec3::ZERO);
+        mesh.cap(&upper, Vec3::new(0.0, 0.86, 0.0), false).unwrap();
         let result = append(&mut mesh, &waist, crotch, &Recipe::default()).unwrap();
         for (&id, &old) in waist.iter().zip(&before) {
             assert_eq!(mesh.vertices[id as usize], old);
