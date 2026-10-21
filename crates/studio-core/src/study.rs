@@ -299,8 +299,8 @@ fn soften_socket_boundary(builder: &mut MeshBuilder, rim: &[u32]) {
     for (i, &id) in rim.iter().enumerate() {
         let adjacent = (points[(i + n - 1) % n] + points[(i + 1) % n]) * 0.5;
         let mut position = points[i];
-        position.y = position.y.lerp(adjacent.y, 0.30);
-        position.z = position.z.lerp(adjacent.z, 0.30);
+        position.y = position.y * 0.70 + adjacent.y * 0.30;
+        position.z = position.z * 0.70 + adjacent.z * 0.30;
         builder.vertices[id as usize] = position;
     }
 }
