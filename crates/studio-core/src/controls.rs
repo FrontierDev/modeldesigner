@@ -129,6 +129,43 @@ impl BuildControl {
         }
     }
 }
+impl BuildSection {
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Proportions => "proportions",
+            Self::Physique => "physique",
+            Self::Torso => "torso",
+            Self::Arms => "arms",
+            Self::Legs => "legs",
+            Self::HeadNeck => "head_neck",
+        }
+    }
+}
+
+/// Portable JSON contract for a future Unity/game character build UI.
+/// Parameter IDs and stored numeric values match the versioned humanoid recipe.
+pub fn build_schema_json() -> Result<String, String> {
+    let controls: Vec<_> = BUILD_CONTROLS.iter().map(|control| {
+        serde_json::json!({
+            "id": control.id,
+            "section": control.section.id(),
+            "label": control.label,
+            "min": control.min,
+            "max": control.max,
+            "default": control.default,
+            "display_scale": control.display_scale,
+            "suffix": control.suffix,
+            "player_editable": control.player_editable,
+        })
+    }).collect();
+    serde_json::to_string_pretty(&serde_json::json!({
+        "schema_version": crate::SCHEMA_VERSION,
+        "generator_version": crate::GENERATOR_VERSION,
+        "model_type": "humanoid",
+        "controls": controls
+    })).map_err(|error| error.to_string())
+}
+
 pub const BUILD_CONTROLS: [BuildControl; 30] = [
     BuildControl {
         parameter: BuildParameter::Height, section: BuildSection::Proportions,
