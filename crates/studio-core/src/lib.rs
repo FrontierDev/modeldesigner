@@ -348,6 +348,60 @@ mod tests {
         }
     }
 
+    /// Measure the worst normal transition around the superior chest/arm join.
+    fn worst_upper_shoulder_normal_dot(model: &Model) -> f32 {
+        use std::collections::HashMap;
+        let mut neighbours = HashMap::<(u32, u32), Vec<Vec3>>::new();
+        for &[a, b, c] in &model.triangles {
+            let va = Vec3::from_array(model.vertices[a as usize]);
+            let vb = Vec3::from_array(model.vertices[b as usize]);
+            let vc = Vec3::from_array(model.vertices[c as usize]);
+            let normal = (vb - va).cross(vc - va).normalize();
+            for (u, v) in [(a, b), (b, c), (c, a)] {
+                neighbours.entry((u.min(v), u.max(v)))
+                    .or_default().push(normal);
+            }
+        }
+        let mut worst = 1.0_f32;
+        let mut inspected = 0;
+        for ((a, b), normals) in neighbours {
+            if normals.len() != 2 { continue; }
+            let point = (Vec3::from_array(model.vertices[a as usize])
+                + Vec3::from_array(model.vertices[b as usize])) * 0.5;
+            if !(0.15..0.38).contains(&point.x.abs())
+                || !(1.39..1.50).contains(&point.y)
+            {
+                continue;
+            }
+            inspected += 1;
+            worst = worst.min(normals[0].dot(normals[1]));
+        }
+        assert!(inspected > 40);
+        worst
+    }
+
+    #[test]
+    fn upper_socket_stays_smooth_in_neutral_and_single_arm_poses() {
+        let recipe = Recipe::default();
+        let neutral = generate(&recipe).unwrap();
+        assert!(worst_upper_shoulder_normal_dot(&neutral) > 0.55);
+        for posed in [
+            PreviewPose {
+                left: ArmPose { raise_deg: 70.0, forward_deg: 0.0 },
+                right: ArmPose::default(),
+            },
+            PreviewPose {
+                left: ArmPose::default(),
+                right: ArmPose { raise_deg: 0.0, forward_deg: 55.0 },
+            },
+        ] {
+            let model = generate_posed(&recipe, posed).unwrap();
+            assert!(worst_upper_shoulder_normal_dot(&model) > 0.40);
+            assert_eq!(model.triangles, neutral.triangles);
+            assert_eq!(model.quads, neutral.quads);
+        }
+    }
+
     #[test]
     fn invalid_independent_pose_is_rejected_without_changing_recipe() {
         let recipe = Recipe::default();
