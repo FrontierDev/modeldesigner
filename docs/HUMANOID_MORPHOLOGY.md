@@ -2,7 +2,7 @@
 
 ## Scope
 
-The humanoid uses one deterministic reference surface **per generator version** and one 19-joint rest skeleton. This milestone extends the six original controls to **30**, keeps original values and serialized keys unchanged, and adds an optional `morphology` object with 24 new parameters. A legacy recipe missing that object uses neutral defaults. Its `schema_version` remains `1`. New recipes default to generator `2`; saved generator `1` recipes continue to use their original reference mesh.
+The humanoid uses one deterministic reference surface **per generator version**, with a 19-joint rest skeleton for versions 1–2 and a 21-joint clavicle-enabled skeleton for version 3. This milestone extends the six original controls to **30**, keeps original values and serialized keys unchanged, and adds an optional `morphology` object with 24 new parameters. A legacy recipe missing that object uses neutral defaults. Its `schema_version` remains `1`. New recipes default to generator `3`; saved generator `1` and `2` recipes continue to use their original reference mesh and rest skeleton.
 
 ## Parameter sections
 
@@ -37,3 +37,7 @@ Player mode presents a curated subset. Advanced mode presents all 30 without cha
 Tests cover parameter uniqueness/defaults/ranges, JSON backward compatibility and round trips, finite vertex data, fixed connectivity, per-control visible displacement, skeletal response for structural controls, and the exported UI metadata.
 
 This is a **reference-cage deformation milestone**, not anatomically precise retopology, production skinning, or a fully playable Unity humanoid. Later work must validate extreme poses, self-intersection, limb articulation, facial topology and equipment fitting.
+
+## Later anatomy revision
+
+Humanoid generator v3 adds clavicles, flatter pectorals, a reduced deltoid silhouette and a defined axillary recess, with a constrained mesh budget. See [HUMANOID_SHOULDER_V3.md](HUMANOID_SHOULDER_V3.md). Legacy recipes are not migrated automatically.
