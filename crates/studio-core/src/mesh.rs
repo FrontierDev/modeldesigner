@@ -116,7 +116,7 @@ impl SurfaceMesh {
                 edge.1 += if u < v { 1 } else { -1 };
             }
         }
-        if let Some((edge, counts)) = edges.iter().find(|(_, &(count, direction))| count != 2 || direction != 0) {
+        if let Some((edge, counts)) = edges.iter().find(|(_, counts)| counts.0 != 2 || counts.1 != 0) {
             return Err(format!("Mesh is not closed/oriented at edge {edge:?}: {counts:?}"));
         }
         Ok(())
