@@ -4,7 +4,7 @@
 //! generic topology engine can build a branching, closed quad surface with
 //! anatomical controls and no imported base mesh or implicit field.
 
-use crate::{ArmPose, Joint, PreviewPose, Recipe, VertexInfluence};
+use crate::{pelvis, ArmPose, Joint, PreviewPose, Recipe, VertexInfluence};
 use crate::mesh::{MeshBuilder, SurfaceMesh};
 use glam::{Quat, Vec3};
 use std::f32::consts::TAU;
@@ -231,8 +231,8 @@ fn arm_rotation(side: f32, pose: ArmPose) -> Quat {
 
 /// Per-joint local rotations for the clavicle and humerus. World transforms,
 /// inverse bind matrices and child propagation are evaluated by skinning.rs.
-pub fn pose_rotations(pose: PreviewPose) -> [Quat; 10] {
-    let mut rotations = [Quat::IDENTITY; 10];
+pub fn pose_rotations(pose: PreviewPose) -> [Quat; 14] {
+    let mut rotations = [Quat::IDENTITY; 14];
     for (side, clavicle, shoulder, arm) in [
         (-1.0_f32, 4_usize, 5_usize, pose.left),
         ( 1.0_f32, 7_usize, 8_usize, pose.right),
@@ -523,7 +523,9 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
             );
         }
     }
-    mesh.cap(&rings[0], Vec3::new(0.0, m.y(TORSO_SECTIONS[0].0), 0.0), true)?;
+    // Reuse the former lower cap centre as an actual crotch bridge vertex.
+    // This preserves all previously authored shoulder patch vertex indices.
+    let crotch_centre = mesh.vertex(Vec3::new(0.0, m.y(0.665), 0.0));
     mesh.cap(&rings[rings.len() - 1],
         Vec3::new(0.0, m.y(TORSO_SECTIONS[TORSO_SECTIONS.len() - 1].0), 0.0), false)?;
 
@@ -605,6 +607,7 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         }
         weight_regions.push((cap_index, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
     }
+    let lower_body = pelvis::append(&mut mesh, &rings[0], crotch_centre, recipe)?;
     fair_upper_shoulder(&mut mesh, m)?;
     let surface = mesh.build()?;
     let mut weights = vec![influence(2, 1.0, 0, 0.0, 0, 0.0); surface.vertices.len()];
@@ -632,6 +635,9 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         };
     }
     for (id, region_weights) in weight_regions {
+        weights[id as usize] = region_weights;
+    }
+    for (id, region_weights) in lower_body.influences {
         weights[id as usize] = region_weights;
     }
     Ok(BuiltStudy { surface, weights, corrective_rings: correction_regions })
@@ -677,6 +683,17 @@ pub fn skeleton(recipe: &Recipe) -> Vec<Joint> {
             Some(shoulder_index), m.elbow(side),
         );
     }
+    // Upper-leg chains follow the 10 original upper-body joints so previously
+    // authored shoulder skin indices and independent arm controls stay stable.
+    for side in [-1.0_f32, 1.0] {
+        let (hip, knee) = pelvis::joint_positions(recipe, side);
+        append_joint(&mut joints,
+            if side < 0.0 { "left_hip" } else { "right_hip" }, Some(0), hip);
+        let parent = joints.len() - 1;
+        append_joint(&mut joints,
+            if side < 0.0 { "left_knee" } else { "right_knee" },
+            Some(parent), knee);
+    }
     joints
 }
 
@@ -687,12 +704,12 @@ mod tests {
     #[test]
     fn neutral_study_is_closed_and_authors_per_ring_skin_weights() {
         let result = build(&Recipe::default()).unwrap();
-        assert_eq!(result.surface.vertices.len(), 580);
-        assert_eq!(result.surface.quads.len(), 512);
-        assert_eq!(result.surface.triangles.len(), 1120);
+        assert_eq!(result.surface.vertices.len(), 758);
+        assert_eq!(result.surface.quads.len(), 688);
+        assert_eq!(result.surface.triangles.len(), 1464);
         assert_eq!(result.weights.len(), result.surface.vertices.len());
         assert_eq!(result.corrective_rings.len(), 10);
-        assert_eq!(skeleton(&Recipe::default()).len(), 10);
+        assert_eq!(skeleton(&Recipe::default()).len(), 14);
         for influence in &result.weights {
             let total: f32 = influence.weights.iter().sum();
             assert!((total - 1.0).abs() < 1e-5);

@@ -95,7 +95,7 @@ fn draw_model_statistics(painter: &egui::Painter, viewport: Rect, model: &Model,
     painter.rect_filled(panel, 5.0, Color32::from_rgba_unmultiplied(28, 32, 38, 228));
     let entries = [
         ("MODEL", String::new()),
-        ("Study", "Upper body".to_owned()),
+        ("Study", "Torso + thighs".to_owned()),
         ("Height", format!("{:.2} m", recipe.height)),
         ("Vertices", model.vertices.len().to_string()),
         ("Quads", model.quads.len().to_string()),
@@ -375,7 +375,7 @@ impl StudioApp {
         ui.heading("Models");
         ui.separator();
         // Model types will grow beyond humanoids; only the humanoid generator exists today.
-        ui.label("Humanoid / upper-body study");
+        ui.label("Humanoid / pelvis + upper thighs");
 
         ui.add_space(16.0);
         ui.label("Model name");
@@ -388,7 +388,7 @@ impl StudioApp {
     }
 
     fn draw_build(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Upper-body parameters");
+        ui.heading("Humanoid parameters");
         ui.separator();
         ui.horizontal(|ui| {
             ui.selectable_value(&mut self.show_advanced, false, "Player");

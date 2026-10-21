@@ -12,6 +12,7 @@ pub mod mesh;
 pub mod morphology;
 pub mod skinning;
 mod study;
+mod pelvis;
 
 pub use controls::{BuildControl, BuildParameter, BuildSection, BUILD_CONTROLS};
 pub use morphology::Morphology;
@@ -71,7 +72,7 @@ impl Default for Recipe {
     fn default() -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
-            name: "Upper Body 01".to_owned(),
+            name: "Humanoid 01".to_owned(),
             height: REFERENCE_HEIGHT,
             shoulder_width: 0.46,
             arm_length: 1.0,
@@ -152,7 +153,7 @@ struct RigExport<'a> {
 
 impl Model {
     pub fn to_obj(&self) -> String {
-        let mut obj = String::from("# Model Designer | metres | Y-up | parametric upper-body study\no upper_body\n");
+        let mut obj = String::from("# Model Designer | metres | Y-up | parametric humanoid study\no humanoid_study\n");
         for [x, y, z] in &self.vertices {
             writeln!(&mut obj, "v {x:.6} {y:.6} {z:.6}").expect("writing String");
         }
@@ -231,7 +232,7 @@ mod tests {
     #[test]
     fn exported_mesh_has_quads_and_a_consistent_rig() {
         let m = generate(&Recipe::default()).unwrap();
-        assert_eq!(m.joints.len(), 10);
+        assert_eq!(m.joints.len(), 14);
         assert!(m.quads.len() > 100);
         assert!(m.triangles.len() < 3_000);
         assert_eq!(m.vertices.len(), m.normals.len());
