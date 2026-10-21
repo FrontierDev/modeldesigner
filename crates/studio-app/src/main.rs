@@ -530,8 +530,10 @@ mod preview_tests {
             colors: [Color32::RED, Color32::GREEN, Color32::BLUE],
         };
         let mesh = triangle_mesh(&[face]);
-        assert_eq!(mesh.vertices.iter().map(|v| v.color).collect::<Vec<_>>(),
-            [Color32::RED, Color32::GREEN, Color32::BLUE]);
+        assert_eq!(
+            mesh.vertices.iter().map(|v| v.color).collect::<Vec<_>>(),
+            vec![Color32::RED, Color32::GREEN, Color32::BLUE]
+        );
     }
 
     #[test]
