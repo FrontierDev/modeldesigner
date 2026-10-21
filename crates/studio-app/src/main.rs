@@ -173,6 +173,7 @@ struct StudioApp {
     camera: Camera,
     wireframe: bool,
     show_skeleton: bool,
+    show_advanced: bool,
     notice: Option<(String, bool)>,
 }
 
@@ -187,7 +188,7 @@ impl StudioApp {
         let model = generate(&recipe).ok();
         Self { saved: recipe.clone(), recipe_path: None,
             camera: Camera::framed(recipe.height), recipe, model,
-            wireframe: false, show_skeleton: false, notice: None }
+            wireframe: false, show_skeleton: false, show_advanced: false, notice: None }
     }
 
     fn dirty(&self) -> bool { self.recipe != self.saved }
@@ -309,21 +310,39 @@ impl StudioApp {
     fn draw_build(&mut self, ui: &mut egui::Ui) {
         ui.heading("Build");
         ui.separator();
-        // The same data-driven slider definitions can be consumed by the game client.
-        // They store the original recipe values, not the scaled display values.
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.show_advanced, false, "Player");
+            ui.selectable_value(&mut self.show_advanced, true, "Advanced");
+        });
+        ui.add_space(12.0);
+
         let slider_width = (ui.available_width() - 70.0).max(130.0);
         ui.spacing_mut().slider_width = slider_width;
         let mut changed = false;
         for (section, label) in [
             (BuildSection::Proportions, "Proportions"),
             (BuildSection::Physique, "Physique"),
+            (BuildSection::Torso, "Torso"),
+            (BuildSection::Arms, "Arms & hands"),
+            (BuildSection::Legs, "Pelvis & legs"),
+            (BuildSection::HeadNeck, "Head & neck"),
         ] {
-            ui.label(egui::RichText::new(label).strong());
-            ui.add_space(4.0);
-            for control in BUILD_CONTROLS.iter().copied().filter(|c| c.section == section) {
-                changed |= build_slider(ui, &mut self.recipe, control);
+            if !BUILD_CONTROLS.iter().any(|control| {
+                control.section == section && (self.show_advanced || control.player_editable)
+            }) {
+                continue;
             }
-            ui.add_space(14.0);
+            egui::CollapsingHeader::new(label)
+                .default_open(matches!(section, BuildSection::Proportions | BuildSection::Physique))
+                .show(ui, |ui| {
+                    ui.add_space(4.0);
+                    for control in BUILD_CONTROLS.iter().copied().filter(|control| {
+                        control.section == section && (self.show_advanced || control.player_editable)
+                    }) {
+                        changed |= build_slider(ui, &mut self.recipe, control);
+                    }
+                });
+            ui.add_space(4.0);
         }
         if changed { self.regenerate(); }
     }
