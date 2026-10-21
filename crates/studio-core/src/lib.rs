@@ -107,6 +107,7 @@ pub struct VertexInfluence {
 
 #[derive(Clone, Debug)]
 pub struct Model {
+    pub generator_version: u32,
     pub vertices: Vec<[f32; 3]>,
     pub normals: Vec<[f32; 3]>,
     pub triangles: Vec<[u32; 3]>,
@@ -140,7 +141,7 @@ impl Model {
     pub fn to_rig_json(&self) -> Result<String, String> {
         serde_json::to_string_pretty(&RigExport {
             schema_version: SCHEMA_VERSION,
-            generator_version: GENERATOR_VERSION,
+            generator_version: self.generator_version,
             vertex_count: self.vertices.len(),
             joint_count: self.joints.len(),
             joints: &self.joints,
@@ -175,6 +176,7 @@ pub fn generate(recipe: &Recipe) -> Result<Model, String> {
         .collect();
     let normals = vertex_normals(&vertices, &reference.triangles);
     Ok(Model {
+        generator_version: recipe.generator_version,
         vertices,
         normals,
         triangles: reference.triangles.clone(),
@@ -591,8 +593,12 @@ mod tests {
         let legacy = generate(&old).unwrap();
         assert_eq!(legacy.vertices.len(), 17_202);
         assert_eq!(legacy.triangles.len(), 34_400);
+        let old_rig: serde_json::Value = serde_json::from_str(&legacy.to_rig_json().unwrap()).unwrap();
+        assert_eq!(old_rig["generator_version"].as_u64(), Some(1));
         assert_eq!(Recipe::from_json(&old.to_json().unwrap()).unwrap(), old);
         let current = generate(&Recipe::default()).unwrap();
+        let current_rig: serde_json::Value = serde_json::from_str(&current.to_rig_json().unwrap()).unwrap();
+        assert_eq!(current_rig["generator_version"].as_u64(), Some(2));
         assert_ne!(legacy.triangles.len(), current.triangles.len());
         assert_eq!(current.normals.len(), current.vertices.len());
         assert!(current.normals.iter().flatten().all(|c| c.is_finite()));
