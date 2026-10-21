@@ -18,6 +18,31 @@ pub use morphology::Morphology;
 pub const SCHEMA_VERSION: u32 = 1;
 pub const REFERENCE_HEIGHT: f32 = 1.75;
 
+/// Non-persistent pose controls for testing shoulder topology in the editor.
+/// These are not part of the character recipe or exported rig.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PreviewPose {
+    pub arm_raise_deg: f32,
+    pub arm_forward_deg: f32,
+}
+impl PreviewPose {
+    pub fn validate(self) -> Result<(), String> {
+        if !self.arm_raise_deg.is_finite()
+            || !(0.0..=70.0).contains(&self.arm_raise_deg)
+            || !self.arm_forward_deg.is_finite()
+            || !(0.0..=55.0).contains(&self.arm_forward_deg)
+        {
+            return Err("Preview arm raise must be 0–70° and forward reach 0–55°".into());
+        }
+        Ok(())
+    }
+
+    pub fn is_neutral(self) -> bool {
+        self.arm_raise_deg == 0.0 && self.arm_forward_deg == 0.0
+    }
+}
+
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Recipe {
@@ -172,12 +197,30 @@ fn closest_influences(point: Vec3, joints: &[Joint]) -> Result<VertexInfluence, 
 }
 
 pub fn generate(recipe: &Recipe) -> Result<Model, String> {
+    generate_posed(recipe, PreviewPose::default())
+}
+
+/// Evaluate a temporary pose for geometry inspection. All skin weights are
+/// computed against the neutral reference, never a posed skeleton or surface.
+pub fn generate_posed(recipe: &Recipe, pose: PreviewPose) -> Result<Model, String> {
     recipe.validate()?;
-    let surface = study::build(recipe)?;
-    let joints = study::skeleton(recipe);
-    let influences = surface.vertices.iter()
-        .map(|&point| closest_influences(point, &joints))
+    pose.validate()?;
+    let neutral_surface = study::build(recipe, PreviewPose::default())?;
+    let rest_joints = study::skeleton(recipe, PreviewPose::default());
+    let influences = neutral_surface.vertices.iter()
+        .map(|&point| closest_influences(point, &rest_joints))
         .collect::<Result<Vec<_>, _>>()?;
+
+    let surface = if pose.is_neutral() {
+        neutral_surface
+    } else {
+        study::build(recipe, pose)?
+    };
+    let joints = if pose.is_neutral() {
+        rest_joints
+    } else {
+        study::skeleton(recipe, pose)
+    };
     let normals = surface.normals();
     Ok(Model {
         vertices: surface.vertices.iter().map(|p| p.to_array()).collect(),
@@ -225,6 +268,43 @@ mod tests {
             assert_eq!(changed.quads, baseline.quads);
             assert_eq!(changed.triangles, baseline.triangles);
         }
+    }
+
+    #[test]
+    fn preview_pose_changes_positions_without_changing_topology_or_weights() {
+        let recipe = Recipe::default();
+        let neutral = generate(&recipe).unwrap();
+        for pose in [
+            PreviewPose { arm_raise_deg: 45.0, arm_forward_deg: 0.0 },
+            PreviewPose { arm_raise_deg: 0.0, arm_forward_deg: 40.0 },
+            PreviewPose { arm_raise_deg: 65.0, arm_forward_deg: 45.0 },
+        ] {
+            let moved = generate_posed(&recipe, pose).unwrap();
+            assert_eq!(moved.quads, neutral.quads);
+            assert_eq!(moved.triangles, neutral.triangles);
+            assert_eq!(moved.influences.len(), neutral.influences.len());
+            for (a, b) in moved.influences.iter().zip(neutral.influences.iter()) {
+                assert_eq!(a.joint_indices, b.joint_indices);
+                assert_eq!(a.weights, b.weights);
+            }
+            assert_ne!(moved.vertices, neutral.vertices);
+            assert_eq!(moved.joints.len(), neutral.joints.len());
+            assert!(moved.vertices.iter().flatten().all(|x| x.is_finite()));
+        }
+    }
+
+    #[test]
+    fn invalid_preview_pose_is_rejected_without_changing_recipe() {
+        let recipe = Recipe::default();
+        assert!(generate_posed(&recipe, PreviewPose {
+            arm_raise_deg: 120.0,
+            arm_forward_deg: 0.0,
+        }).is_err());
+        assert!(generate_posed(&recipe, PreviewPose {
+            arm_raise_deg: f32::NAN,
+            arm_forward_deg: 0.0,
+        }).is_err());
+        assert_eq!(recipe, Recipe::default());
     }
 
     #[test]
