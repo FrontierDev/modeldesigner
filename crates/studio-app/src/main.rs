@@ -311,7 +311,8 @@ impl StudioApp {
         ui.separator();
         // The same data-driven slider definitions can be consumed by the game client.
         // They store the original recipe values, not the scaled display values.
-        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(130.0);
+        let slider_width = (ui.available_width() - 70.0).max(130.0);
+        ui.spacing_mut().slider_width = slider_width;
         let mut changed = false;
         for (section, label) in [
             (BuildSection::Proportions, "Proportions"),
