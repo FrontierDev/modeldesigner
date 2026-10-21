@@ -56,6 +56,63 @@ impl MeshBuilder {
         Ok(())
     }
 
+    /// Local constrained fairing of an authored quad surface. Smooth only
+    /// vertices selected by an anatomical region mask, in parallel from a
+    /// snapshot of the prior pass. Connectivity and vertex order never change.
+    ///
+    /// Faces are used for adjacency only: triangle rendering diagonals are
+    /// intentionally excluded. All iterations are deterministic.
+    pub fn relax_masked(
+        &mut self,
+        mask: &[f32],
+        iterations: usize,
+        rate: f32,
+        max_displacement: f32,
+    ) -> Result<(), String> {
+        if mask.len() != self.vertices.len()
+            || !rate.is_finite() || !(0.0..=1.0).contains(&rate)
+            || !max_displacement.is_finite() || max_displacement <= 0.0
+            || mask.iter().any(|w| !w.is_finite() || !(0.0..=1.0).contains(w))
+        {
+            return Err("Invalid surface-fairing weights or parameters".into());
+        }
+
+        let mut neighbours = vec![Vec::<usize>::new(); self.vertices.len()];
+        for &[a, b, c, d] in &self.quads {
+            for (u, v) in [(a, b), (b, c), (c, d), (d, a)] {
+                let u = u as usize;
+                let v = v as usize;
+                if u >= neighbours.len() || v >= neighbours.len() {
+                    return Err("Surface fairing encountered an invalid quad index".into());
+                }
+                neighbours[u].push(v);
+                neighbours[v].push(u);
+            }
+        }
+        for ring in &mut neighbours {
+            ring.sort_unstable();
+            ring.dedup();
+        }
+
+        let bind = self.vertices.clone();
+        for _ in 0..iterations {
+            let before = self.vertices.clone();
+            let mut next = before.clone();
+            for (i, adjacency) in neighbours.iter().enumerate() {
+                if mask[i] == 0.0 || adjacency.is_empty() {
+                    continue;
+                }
+                let average = adjacency.iter()
+                    .map(|&j| before[j]).sum::<Vec3>() / adjacency.len() as f32;
+                let proposed = before[i] + (average - before[i]) * (rate * mask[i]);
+                let offset = proposed - bind[i];
+                next[i] = bind[i] + offset.clamp_length_max(max_displacement);
+            }
+            self.vertices = next;
+        }
+        Ok(())
+    }
+
     /// A triangle-fan closure. Used only for study boundary ends, not joints.
     pub fn cap(&mut self, loop_ids: &[u32], centre: Vec3, reverse: bool) -> Result<(), String> {
         if loop_ids.len() < 3 {
@@ -144,6 +201,29 @@ mod tests {
     fn rejects_unmatched_stitch_loops() {
         let mut builder = MeshBuilder::default();
         assert!(builder.stitch(&[0, 1, 2], &[3, 4]).is_err());
+    }
+
+    #[test]
+    fn masked_fairing_keeps_indices_and_protects_untouched_vertices() {
+        let mut b = MeshBuilder::default();
+        for point in [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.3),
+            Vec3::new(0.0, 1.0, 0.0),
+        ] {
+            b.vertex(point);
+        }
+        b.quad(0, 1, 2, 3);
+        let face = b.quads.clone();
+        let untouched = b.vertices[0];
+        let old = b.vertices[2];
+        b.relax_masked(&[0.0, 0.0, 1.0, 0.0], 4, 0.2, 0.05).unwrap();
+        assert_eq!(b.quads, face);
+        assert_eq!(b.vertices[0], untouched);
+        assert!(b.vertices[2].distance(old) > 0.0);
+        assert!(b.vertices[2].distance(old) <= 0.05001);
+        assert!(b.relax_masked(&[0.0], 1, 0.2, 0.05).is_err());
     }
 
     #[test]

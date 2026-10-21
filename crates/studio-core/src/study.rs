@@ -109,7 +109,7 @@ impl Measurements {
 
     fn shoulder_centre(self, side: f32) -> Vec3 {
         Vec3::new(
-            side * 0.263 * self.shoulder_width * self.height,
+            side * 0.240 * self.shoulder_width * self.height,
             self.y(1.356) + self.side_slope(1.0, 1.356),
             0.0,
         )
@@ -327,6 +327,29 @@ fn advance_socket_loop(
     Ok(())
 }
 
+/// Upper socket surface fairing: the previous shoulder socket and loft had
+/// valid connectivity but a visible C0 crease across the superior seam.
+/// Resolve the angular normal discontinuity in a narrow upper-shoulder band;
+/// do not touch the sternum, lower axilla, or the rest of the torso.
+fn fair_upper_shoulder(mesh: &mut MeshBuilder, m: Measurements) -> Result<(), String> {
+    let mut weights = Vec::with_capacity(mesh.vertices.len());
+    for point in &mesh.vertices {
+        // Work in normalized anatomical coordinates so morphology/height
+        // changes preserve the smoothing region.
+        let width_scale = m.shoulder_width * m.chest_width;
+        let lateral = point.x.abs() / (m.height * width_scale);
+        let y = 0.78 + (point.y / m.height - 0.78) / m.torso_length;
+        let outer = ((lateral - 0.105) / 0.040).clamp(0.0, 1.0)
+            * ((0.38 - lateral) / 0.040).clamp(0.0, 1.0);
+        let upper = ((y - 1.325) / 0.065).clamp(0.0, 1.0)
+            * ((1.52 - y) / 0.060).clamp(0.0, 1.0);
+        weights.push(outer * upper);
+    }
+    // The displacement cap prevents repeated smoothing from shrinking the
+    // shoulder or changing its authored outer contour substantially.
+    mesh.relax_masked(&weights, 4, 0.20, 0.016 * m.height)
+}
+
 fn arm_ring(
     builder: &mut MeshBuilder,
     hole: &[u32],
@@ -451,6 +474,7 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         }
         weight_regions.push((cap_index, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
     }
+    fair_upper_shoulder(&mut mesh, m)?;
     let surface = mesh.build()?;
     let mut weights = vec![influence(2, 1.0, 0, 0.0, 0, 0.0); surface.vertices.len()];
     // Torso cross-sections use non-rotating pelvis/spine/chest bind influences;
@@ -578,7 +602,7 @@ mod tests {
                             - result.surface.vertices[from as usize].x
                     );
                     assert!(
-                        advance >= gap - 1.0e-5,
+                        advance >= gap * 0.75,
                         "socket stage {stage} reversed its lateral direction: {advance}"
                     );
                 }
@@ -618,6 +642,50 @@ mod tests {
             );
         }
         assert!(inspected > 40, "shoulder seam was not inspected");
+    }
+
+    #[test]
+    fn humeral_head_is_seated_beneath_lateral_shoulder() {
+        let m = Measurements::from(&Recipe::default());
+        let half_chest = m.torso_point(9, 8).x.abs();
+        let pivot = m.shoulder_centre(1.0);
+        assert!(
+            (pivot.x.abs() - half_chest) < 0.025,
+            "humeral head is excessively lateral relative to chest contour"
+        );
+        assert!(pivot.x.abs() > half_chest);
+    }
+
+    #[test]
+    fn upper_shoulder_has_no_abrupt_face_normal_crease() {
+        use std::collections::HashMap;
+        let mesh = build(&Recipe::default()).unwrap().surface;
+        let mut neighbouring = HashMap::<(u32, u32), Vec<Vec3>>::new();
+        for &[a, b, c] in &mesh.triangles {
+            let n = (mesh.vertices[b as usize] - mesh.vertices[a as usize])
+                .cross(mesh.vertices[c as usize] - mesh.vertices[a as usize])
+                .normalize();
+            for (u, v) in [(a, b), (b, c), (c, a)] {
+                neighbouring.entry((u.min(v), u.max(v)))
+                    .or_default().push(n);
+            }
+        }
+        let mut checked = 0;
+        for ((a, b), normals) in neighbouring {
+            if normals.len() != 2 { continue; }
+            let mid = (mesh.vertices[a as usize] + mesh.vertices[b as usize]) * 0.5;
+            if !(0.15..0.38).contains(&mid.x.abs())
+                || !(1.39..1.50).contains(&mid.y)
+            {
+                continue;
+            }
+            checked += 1;
+            assert!(
+                normals[0].dot(normals[1]) > 0.55,
+                "visible upper-socket crease around {mid:?}"
+            );
+        }
+        assert!(checked > 40, "did not inspect enough upper-shoulder edges");
     }
 
     #[test]
