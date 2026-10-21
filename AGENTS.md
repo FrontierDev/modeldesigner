@@ -34,3 +34,6 @@
 - Every build control added to the schema must genuinely alter geometry or rest joint positions; test bounds and topology invariance.
 
 - Do not reinstate a separate outer pelvis skirt/flare. The pelvis grid must use the torso's existing bottom 32 vertices and bend its interior into the crotch, with first thigh rings interpolated from actual socket boundaries. Keep direct mesh connection and no extra perimeter ring.
+- **Pelvis construction rule:** Build the anatomical left/right 12-vertex thigh root contours *first*. Solve the connecting 3-boundary quad surface from the existing 32-vertex torso circumference and those roots. Do not restore flat Coons lids, perimeter skirts, horizontal root rings or attached cylinder shells.
+- All pelvic harmonic relaxation is deterministic and acts only on interior quad vertices; pinned waist and thigh-root boundary coordinates must not change. Preserve hip/knee joint indices 10–13.
+- Never allocate unused grid vertices in the two thigh openings. Validate all vertices are referenced by faces and each root is higher laterally than medially.

@@ -1,77 +1,65 @@
-# Pelvis and upper-leg implementation
+# Pelvis and upper-leg generator — anatomical Y junction
 
-## Purpose
+## Problem fixed
 
-Extend the procedural humanoid beyond the torso and shoulders without importing any anatomical mesh and without changing the geometry engine. The result is **one connected manifold surface**, not a collection of intersecting leg primitives.
+The first implementation attached legs to a broad, horizontal pelvic lid. Its silhouette resembled a skirt over cylindrical legs, even after removing the extra skirt ring. Both constructions began with the lower torso surface and attempted to insert cylindrical legs afterward. They were topologically closed but visually incorrect.
 
-## Topology construction
+The replacement is **boundary-driven and leg-first**: define the waist, the left upper-thigh root, and the right upper-thigh root, then derive a single curved pelvic surface that connects all three.
 
-- Preserve the existing 13-row torso and its shoulder-to-upper-arm quad patches.
-- Remove the temporary *bottom torso cap* and reuse its former centre vertex as the actual centre of the pelvic/crotch bridge. The preceding shoulder vertex indices are therefore retained.
-- Shape the **existing 32-vertex lower torso ring** into the hip contour using hip width, pelvic inclination and posterior gluteal projection; **do not add a second skirt ring**.
-- Build a **9×9 (8×8-cell)** transfinite/Coons-interpolated pelvic underside, with its 32 perimeter vertices reused directly from the torso. Lower the interior into a soft crotch saddle, keeping the outer perimeter anchored to the original torso topology.
-- Omit two separated 2×4 blocks of quads from the underside. These openings are the left and right leg sockets; each hole has an ordered **12-vertex boundary**, with a continuous crotch strip between them.
-- Loft four 12-vertex quad rings from each socket toward a temporary knee plane. The first rings interpolate the existing socket perimeter towards rounded thigh contours so that no independent cylinders or abrupt root rings appear. Each corresponding ring descends monotonically. Cap the open knees only for the current isolated study; no new vertices are created along sewn boundaries.
-- Apply the existing closed/oriented-manifold check to the combined surface and preserve identical face indices under parameter changes.
+## Construction
 
-This is a *procedural two-hole patch*, not voxelization, boolean unions, marching tetrahedra, or post-hoc retopology.
+1. Reuse the 32 existing lowest torso vertices as the waist boundary. Preserve the entire upper-body/shoulder generator.
+2. Compute anatomical hip/femur landmarks from build parameters.
+3. Create two **12-vertex curved thigh root contours** with centers beneath the hip joints. Their outside edges sit higher near the greater trochanter and their inside edges descend toward the perineum. The contours are *not planar*.
+4. Reserve a stable quad-patch topology connecting the waist and the two thigh roots. This is topologically a pair-of-trousers/three-boundary surface; the two separate socket openings are part of its original topology.
+5. Fix the three anatomical boundaries and solve the remaining pelvic vertices through deterministic quad-edge harmonic relaxation. This replaces the former flat Coons-patch lid.
+6. Add a limited posterior gluteal contour to the *interior* of the patch while leaving the sewn boundaries fixed.
+7. Sweep four successive 12-vertex upper-thigh loops **from each root contour**, down to a provisional knee plane. The loft smoothly blends from the curved proximal cross-section to the narrower knee.
+8. Cap only the provisional knees and the existing neck/elbows. No mesh booleans, union cylinders, voxel remeshing, or imported base mesh.
 
-## Parameters
+The generator no longer allocates the two unused points that were hidden inside the old grid's thigh openings.
 
-Existing values now enabled:
+## Implemented controls
 
-| Control | Stored range | Neutral | Function |
-| --- | --- | --- | --- |
-| Hip width | 0.8–1.25 | 1.0 | Pelvic width and hip-joint spacing |
-| Pelvis tilt | 0–1 | 0.5 | Inclination of the lower pelvic section |
-| Glute volume | 0–1 | 0.5 | Rear projection of the pelvic contour |
-| Thigh girth | 0.7–1.4 | 1.0 | Circumference of proximal/distal upper leg rings |
-| Stance width | 0.8–1.2 | 1.0 | Side-to-side knee offset relative to hip |
-| Leg length | 0.82–1.18 | 1.0 | Temporary hip-to-knee segment length (not full leg yet) |
-
-The upper-body controls remain active, resulting in **35 functional sliders**. The same recipe IDs are used by the desktop editor and exported game UI schema. Unsupported shin, ankle, foot and forearm controls are still hidden.
+Hip width changes waist/pelvic outline and both thigh socket positions. Pelvic tilt changes the front/back pelvis profile and thigh root inclination. Glute volume controls the posterior root and hip fullness. Thigh girth modifies the anatomical thigh roots and knee loops. Leg length modifies the hip-to-knee segment in the current partial model, and stance width modifies the knee position relative to the hip. Height, body mass, and torso length are also inherited. The rest of the existing upper-body controls remain active.
 
 ## Skeleton and skinning
 
-- Preserve the original first ten joints and their indices.
-- Add `left_hip` (10), `left_knee` (11), `right_hip` (12), `right_knee` (13).
-- Pelvic and crotch surfaces remain bound to the pelvis/root. The first proximal upper-leg loop blends pelvis and hip, followed by predominantly hip-bound rings.
-- The left and right arm pose system remains unchanged. Hip/knee posing and gait-corrective deformation are **not implemented yet**, and leg controls modify neutral anatomy only.
+The original ten joints are retained without reindexing. Left hip/knee are 10/11 and right hip/knee are 12/13. Pelvic bridge points remain pelvis-bound; the thigh roots transition gradually from pelvis influence to upper-leg/hip influence. Hip posing and deformation correctives are **not** part of this implementation.
 
-## Preliminary topology targets
+## Expected neutral counts
 
-- **726 vertices**
+- **724 vertices**
 - **656 quads**
-- **1,400 renderer triangles**, including temporary neck, elbow and knee end caps
+- **1,400 render triangles** (including temporary end caps)
 - **14 joints**
 
-These are derived from construction counts and should be confirmed by executing Rust unit tests locally.
+These are construction-derived counts, not yet verified by a Rust compiler in this environment.
 
-## Verification
+## Regression criteria
 
-The included Rust tests check two distinct 12-vertex openings, 32-vertex perimeter reuse, four rings on each leg, anatomical sliders, joint endpoints, finite geometry, face-index invariance and manifold closure across several extreme body shapes.
+- Exactly one closed, consistently oriented connected surface, including both hip junctions.
+- No unused vertices or independent tube geometry.
+- Thigh roots higher on the outside and lower at the crotch.
+- Positive separation between the two inner thighs at every supported girth/hip-width combination.
+- Every corresponding upper-leg ring vertex moves down towards the knee, never folding back.
+- The same indexed faces and joint count across all build parameter combinations.
+- No degenerate triangle areas, finite positions and skin weights summing to one.
 
-An independent Python prototype of the same 8×8-cell, two-hole grid and thigh loft passed oriented-edge pairing and triangle-area checks at hip-width 0.8/1.0/1.25 and thigh-girth 0.7/1.0/1.4. **This does not replace compiling and testing the exact Rust implementation.**
+An independent Python implementation of the 3-boundary harmonic surface passed **192 combinations** of hip width, thigh girth, glute volume, pelvic tilt, leg length and stance width. It reported oriented-manifold edges, nondegenerate triangles and separated thigh roots for those combinations. It is not a substitute for compiling and viewing the Rust model.
 
-Local commands:
+## Run local checks
 
 ```powershell
+git pull origin main
 cargo fmt --all
 cargo check --workspace
 cargo test --workspace
 cargo run -p modeldesigner --release
 ```
 
-GitHub CI was set to **manual-only** at the user's request and must not be triggered automatically.
+GitHub Actions is **manual-only** and must not be triggered until the user explicitly authorizes it.
 
-## Next objectives
+## Next milestone
 
-Evaluate the pelvis silhouette and crotch topology from front, back and side. Then add independent hip flexion/abduction with correct skeletal weighting and hip-volume preservation before extending below the knee. The torso-to-pelvis profile and upper-thigh stance should be visually checked at parameter extremes before proceeding.
-
-## 2026-10-21 pelvis correction
-
-The previous implementation created an extra **32-vertex lateral skirt below the torso**, then attached four elliptical thigh rings through a nearly flat, downward-facing underside. Even though the mesh was manifold, the silhouette looked like a flared garment hovering over separate legs.
-
-That construction was removed rather than smoothed. The lower torso ring is now the actual perimeter of the pelvis. The interior of the pelvic quad grid drops towards the crotch, and the first thigh rings interpolate **from their socket boundaries** instead of appearing as independent cylinders. The waist/hip contour and the hip-width, tilt and glute controls are evaluated on the actual lower torso vertices. The revision removes 32 redundant skirt vertices and 32 quads while preserving the 14-joint skeleton.
-
-Geometry was evaluated with a local independent Python reproduction at default and several extreme parameter combinations, including combined narrow hips/wide thighs and wide hips/narrow thighs. These sampled surfaces retained consistently paired directed edges and nonzero triangle areas. Rust compilation and the rendered viewport still require verification on the user's machine; those numerical checks are not a claim of completed anatomical realism.
+Review the neutral pelvis and hip-to-thigh silhouette in the native viewport from front, profile and rear, with and without wireframe. In particular, ensure the torso-to-hip contour does not form a hem, the crotch looks like a saddle instead of a detached bridge, and the upper thighs follow the hip mass continuously. Only then proceed with independent hip skeletal rotation and correctives.

@@ -720,7 +720,7 @@ mod tests {
     #[test]
     fn neutral_study_is_closed_and_authors_per_ring_skin_weights() {
         let result = build(&Recipe::default()).unwrap();
-        assert_eq!(result.surface.vertices.len(), 726);
+        assert_eq!(result.surface.vertices.len(), 724);
         assert_eq!(result.surface.quads.len(), 656);
         assert_eq!(result.surface.triangles.len(), 1400);
         assert_eq!(result.weights.len(), result.surface.vertices.len());
