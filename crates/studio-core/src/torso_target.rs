@@ -33,23 +33,72 @@ impl Arm {
         let forward = (Vec3::Z - direction * direction.z).normalize();
         let vertical = direction.cross(forward).normalize();
         let difference = p - centre;
-        let radius = self.proximal + (self.distal - self.proximal) * t;
-        // Anterior biceps and posterior triceps change thickness independently.
+
+        // The deltoid is a smoothly tapering proximal part of the arm,
+        // not a spherical volume unioned onto a separate arm cylinder.
+        // Its bulge is fully absorbed into the shaft by ~40% arm length.
+        let deltoid_t = (t / 0.44).clamp(0.0, 1.0);
+        let deltoid = (1.0 - deltoid_t * deltoid_t).powi(2);
+        let radius = self.proximal + (self.distal - self.proximal) * t
+            + (self.deltoid_radius.y - self.proximal).max(0.0) * deltoid;
         let sagittal = if difference.dot(forward) >= 0.0 {
             self.front
         } else {
             self.back
         };
+        let sagittal = sagittal + (self.deltoid_radius.z - sagittal)
+            .max(0.0) * deltoid;
         let scaled = Vec3::new(
             difference.dot(vertical) / radius,
             difference.dot(forward) / sagittal,
             difference.dot(direction) / radius,
         );
-        let shaft = (scaled.length() - 1.0) * radius;
-        let cap = (p - self.shoulder) / self.deltoid_radius;
-        let shoulder = (cap.length() - 1.0) * self.deltoid_radius.min_element();
-        smooth_union(shaft, shoulder, 0.038)
+        (scaled.length() - 1.0) * radius.min(sagittal)
     }
+}
+
+// Piecewise cubic Hermite interpolation with shared, shape-preserving
+// derivatives. Each knot has ONE tangent, so neighboring sections meet with
+// continuous first derivatives; zero slope occurs only at real extrema.
+fn section_secant(sections: &[Section; 10], i: usize, value: fn(Section) -> f32) -> f32 {
+    let dy = sections[i + 1].y - sections[i].y;
+    (value(sections[i + 1]) - value(sections[i])) / dy
+}
+
+fn section_tangent(sections: &[Section; 10], i: usize, value: fn(Section) -> f32) -> f32 {
+    if i == 0 {
+        return section_secant(sections, 0, value);
+    }
+    if i == sections.len() - 1 {
+        return section_secant(sections, i - 1, value);
+    }
+    let before = section_secant(sections, i - 1, value);
+    let after = section_secant(sections, i, value);
+    if before * after <= 0.0 {
+        return 0.0;
+    }
+    let h0 = sections[i].y - sections[i - 1].y;
+    let h1 = sections[i + 1].y - sections[i].y;
+    let w0 = 2.0 * h1 + h0;
+    let w1 = h1 + 2.0 * h0;
+    (w0 + w1) / (w0 / before + w1 / after)
+}
+
+fn section_interpolate(
+    sections: &[Section; 10], band: usize, y: f32, value: fn(Section) -> f32,
+) -> f32 {
+    let a = sections[band];
+    let b = sections[band + 1];
+    let delta = b.y - a.y;
+    let t = ((y - a.y) / delta).clamp(0.0, 1.0);
+    let t2 = t * t;
+    let t3 = t2 * t;
+    let m0 = section_tangent(sections, band, value);
+    let m1 = section_tangent(sections, band + 1, value);
+    (2.0 * t3 - 3.0 * t2 + 1.0) * value(a)
+        + (t3 - 2.0 * t2 + t) * delta * m0
+        + (-2.0 * t3 + 3.0 * t2) * value(b)
+        + (t3 - t2) * delta * m1
 }
 
 fn smooth_union(a: f32, b: f32, k: f32) -> f32 {
@@ -93,6 +142,10 @@ impl TorsoTarget {
             let (base_y, base_w, front, back) = BASE[i];
             let chest = ((base_y - 1.02) / 0.22).clamp(0.0, 1.0)
                 * ((1.47 - base_y) / 0.14).clamp(0.0, 1.0);
+            // Broad pectorals must transition into the clavicle/deltoid
+            // instead of widening the neck-side shoulder attachment.
+            let clavicle_fade = ((base_y - 1.27) / 0.16).clamp(0.0, 1.0);
+            let chest_width_influence = chest * (1.0 - 0.52 * clavicle_fade);
             let waist = ((1.19 - base_y) / 0.35).clamp(0.0, 1.0);
             let neck = ((base_y - 1.43) / 0.10).clamp(0.0, 1.0);
             let ribs = ((base_y - 1.02) / 0.19).clamp(0.0, 1.0)
@@ -100,9 +153,10 @@ impl TorsoTarget {
             let abdomen = ((1.20 - base_y) / 0.35).clamp(0.0, 1.0);
             let width = base_w
                 * (1.0 + waist * (m.waist_width - 1.0))
-                * (1.0 + chest * (m.chest_width - 1.0))
+                * (1.0 + chest_width_influence * (m.chest_width - 1.0))
                 * (1.0 + ribs * (m.ribcage_taper - 1.0) * 0.45)
-                * (1.0 + chest * (recipe.shoulder_width / 0.46 - 1.0) * 0.40)
+                * (1.0 + chest_width_influence
+                    * (recipe.shoulder_width / 0.46 - 1.0) * 0.40)
                 * (1.0 + neck * (m.neck_width - 1.0))
                 * (1.0 + mass * waist * 0.14 + muscle * chest * 0.07);
             let front = front
@@ -132,10 +186,17 @@ impl TorsoTarget {
         });
         let arms = std::array::from_fn(|i| {
             let side = if i == 0 { -1.0 } else { 1.0 };
+            // The clavicular end follows broadening of the upper ribcage,
+            // while shoulder-width still determines the primary span.
+            // Height and sagittal placement follow the thoracic reference.
+            let lateral = recipe.shoulder_width * 0.50
+                + 0.060 * (m.chest_width - 1.0);
             let shoulder = Vec3::new(
-                side * recipe.shoulder_width * 0.50,
-                1.352 - (m.shoulder_slope - 0.5) * 0.085,
-                0.020 + 0.095 * (m.shoulder_forward - 0.5),
+                side * lateral,
+                sections[5].y / scale + 0.032
+                    - (m.shoulder_slope - 0.5) * 0.085,
+                sections[5].z_centre / scale + 0.020
+                    + 0.060 * (m.shoulder_forward - 0.5),
             ) * scale;
             let elbow = shoulder + Vec3::new(
                 side * 0.285 * recipe.arm_length,
@@ -180,15 +241,10 @@ impl TorsoTarget {
         let y = point.y.clamp(first.y, last.y);
         let band = self.sections.windows(2)
             .position(|w| y <= w[1].y).unwrap_or(8);
-        let a = self.sections[band];
-        let b = self.sections[band + 1];
-        let t = ((y - a.y) / (b.y - a.y)).clamp(0.0, 1.0);
-        // Cubic Hermite interpolation prevents visible hard steps at sections.
-        let t = t * t * (3.0 - 2.0 * t);
-        let mut width = a.width + (b.width - a.width) * t;
-        let mut front = a.front + (b.front - a.front) * t;
-        let back = a.back + (b.back - a.back) * t;
-        let z_centre = a.z_centre + (b.z_centre - a.z_centre) * t;
+        let mut width = section_interpolate(&self.sections, band, y, |s| s.width);
+        let mut front = section_interpolate(&self.sections, band, y, |s| s.front);
+        let back = section_interpolate(&self.sections, band, y, |s| s.back);
+        let z_centre = section_interpolate(&self.sections, band, y, |s| s.z_centre);
         let z = point.z - z_centre;
         let reference_y = point.y / self.scale;
         let chest = ((reference_y - 1.14) / 0.12).clamp(0.0, 1.0)
@@ -214,7 +270,10 @@ impl TorsoTarget {
         let inside = radial.max(axial).min(0.0);
         let mut result = outside + inside;
         for arm in self.arms {
-            result = smooth_union(result, arm.field(point), 0.038 * (last.y / 1.58));
+            // Use a larger blending band where the deltoid merges into
+            // pectoral and upper-back tissue; this is a shape target, not
+            // the eventual rigged shoulder topology.
+            result = smooth_union(result, arm.field(point), 0.052 * self.scale);
         }
         result
     }
