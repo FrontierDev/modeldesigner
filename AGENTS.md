@@ -8,3 +8,6 @@
 - Validate all recipe input, reject unsupported versions, and present explicit errors; do not silently substitute unrelated geometry.
 - Save recipes atomically, protect unsaved changes, keep previews and exports consistent.
 - Run local formatting/check/tests/clippy when toolchain is available. Do not trigger GitHub Actions without explicit authorization.
+- Treat the authoring application as multi-model in design, while retaining humanoids as the only implemented model type until new generators exist.
+- Keep user-facing build sliders minimal and aligned with the validated `studio-core::BUILD_CONTROLS` definitions. Do not duplicate slider bounds, change recipe units, or silently alter schema/generator versions.
+- Keep mesh diagnostics in preview controls, not the player-style Build inspector. Avoid milestone copy and verbose explanatory labels in the UI.
