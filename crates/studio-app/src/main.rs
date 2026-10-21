@@ -63,6 +63,27 @@ struct Face {
     color: Color32,
 }
 
+/// Render triangles without the anti-aliased convex-polygon tessellator.
+/// Its miter expansion produces enormous vertices for narrow triangles,
+/// creating the apparent spikes in otherwise valid humanoid geometry.
+fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
+    let mut mesh = egui::epaint::Mesh::default();
+    mesh.vertices.reserve(faces.len() * 3);
+    mesh.indices.reserve(faces.len() * 3);
+    for face in faces {
+        let start = mesh.vertices.len() as u32;
+        for &pos in &face.points {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos,
+                uv: egui::epaint::WHITE_UV,
+                color: face.color,
+            });
+        }
+        mesh.indices.extend_from_slice(&[start, start + 1, start + 2]);
+    }
+    mesh
+}
+
 fn preview(ui: &mut egui::Ui, model: &Model, camera: &mut Camera, wireframe: bool, skeleton: bool) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -116,10 +137,19 @@ fn preview(ui: &mut egui::Ui, model: &Model, camera: &mut Camera, wireframe: boo
         faces.push(Face { points: [pa, pb, pc], depth: (da + db + dc) / 3.0, color: colour });
     }
     faces.sort_by(|a, b| b.depth.total_cmp(&a.depth));
-    for face in faces {
-        let outline = if wireframe { Stroke::new(0.35, Color32::from_rgba_unmultiplied(20, 28, 38, 190)) }
-                      else { Stroke::NONE };
-        painter.add(egui::Shape::convex_polygon(face.points.to_vec(), face.color, outline));
+    // Bypass convex-polygon anti-aliasing; it can stretch thin triangles
+    // across the entire viewport. The GPU mesh retains the exact positions.
+    painter.add(egui::Shape::mesh(triangle_mesh(&faces)));
+    if wireframe {
+        let stroke = Stroke::new(0.35, Color32::from_rgb(20, 28, 38));
+        for face in &faces {
+            for edge in 0..3 {
+                painter.line_segment(
+                    [face.points[edge], face.points[(edge + 1) % 3]],
+                    stroke,
+                );
+            }
+        }
     }
     if skeleton {
         for joint in &model.joints {
@@ -357,5 +387,43 @@ impl eframe::App for StudioApp {
                 preview(ui, model, &mut self.camera, self.wireframe, self.show_skeleton);
             } else { ui.centered_and_justified(|ui| { ui.label("No valid mesh to preview"); }); }
         });
+    }
+}
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[test]
+    fn thin_triangles_preserve_exact_projected_vertices() {
+        let points = [
+            egui::pos2(100.0, 100.0),
+            egui::pos2(100.0001, 100.0),
+            egui::pos2(100.0, 150.0),
+        ];
+        let face = Face { points, depth: 2.0, color: Color32::GRAY };
+        let mesh = triangle_mesh(&[face]);
+        assert!(mesh.is_valid());
+        assert_eq!(mesh.indices, [0, 1, 2]);
+        assert_eq!(mesh.vertices.len(), 3);
+        for (actual, expected) in mesh.vertices.iter().zip(points.iter()) {
+            assert_eq!(actual.pos, *expected);
+            assert_eq!(actual.uv, egui::epaint::WHITE_UV);
+            assert_eq!(actual.color, Color32::GRAY);
+        }
+    }
+
+    #[test]
+    fn large_triangle_batches_use_untruncated_indices() {
+        let face = Face {
+            points: [egui::pos2(10.0, 10.0), egui::pos2(20.0, 10.0), egui::pos2(10.0, 20.0)],
+            depth: 2.0,
+            color: Color32::WHITE,
+        };
+        let faces = vec![face; 35_000];
+        let mesh = triangle_mesh(&faces);
+        assert!(mesh.is_valid());
+        assert_eq!(mesh.vertices.len(), 105_000);
+        assert_eq!(mesh.indices.len(), 105_000);
+        assert_eq!(mesh.indices[104_999], 104_999);
     }
 }
