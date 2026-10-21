@@ -5,6 +5,7 @@ use glam::Vec3;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
 use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, PreviewPose, Recipe, generate, generate_posed};
+use studio_core::anatomy::{AnatomyTarget, TargetSurface};
 use studio_core::controls::build_schema_json;
 
 fn main() -> eframe::Result<()> {
@@ -87,7 +88,10 @@ fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
 }
 
 /// Same fixed top-right statistics panel pattern as envmoddesigner.
-fn draw_model_statistics(painter: &egui::Painter, viewport: Rect, model: &Model, recipe: &Recipe) {
+fn draw_model_statistics(
+    painter: &egui::Painter, viewport: Rect, model: &Model, recipe: &Recipe,
+    anatomy_target: bool,
+) {
     let panel = Rect::from_min_size(
         viewport.right_top() + egui::vec2(-194.0, 12.0),
         egui::vec2(182.0, 166.0),
@@ -95,12 +99,12 @@ fn draw_model_statistics(painter: &egui::Painter, viewport: Rect, model: &Model,
     painter.rect_filled(panel, 5.0, Color32::from_rgba_unmultiplied(28, 32, 38, 228));
     let entries = [
         ("MODEL", String::new()),
-        ("Study", "Torso + thighs".to_owned()),
+        ("Study", if anatomy_target { "Anatomy target" } else { "Torso + thighs" }.to_owned()),
         ("Height", format!("{:.2} m", recipe.height)),
         ("Vertices", model.vertices.len().to_string()),
-        ("Quads", model.quads.len().to_string()),
+        ("Quads", if anatomy_target { "Not fitted".to_owned() } else { model.quads.len().to_string() }),
         ("Triangles", model.triangles.len().to_string()),
-        ("Joints", model.joints.len().to_string()),
+        ("Joints", if anatomy_target { "Not rigged".to_owned() } else { model.joints.len().to_string() }),
     ];
     for (index, (label, value)) in entries.iter().enumerate() {
         let y = panel.top() + 11.0 + index as f32 * 21.0;
@@ -134,7 +138,7 @@ fn shaded_vertex(normal: Vec3, light: Vec3) -> Color32 {
 
 fn preview(
     ui: &mut egui::Ui, model: &Model, recipe: &Recipe,
-    camera: &mut Camera, wireframe: bool, skeleton: bool,
+    camera: &mut Camera, wireframe: bool, skeleton: bool, anatomy_target: bool,
 ) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -189,8 +193,8 @@ fn preview(
     // across the entire viewport. The GPU mesh retains the exact positions.
     painter.add(egui::Shape::mesh(triangle_mesh(&faces)));
     if wireframe {
-        // The model's topology is quad-based. Do not render either of the
-        // temporary diagonals introduced to draw each quad on the screen.
+        // The fixed-topology study draws quad edges; the anatomy study draws
+        // provisional triangle edges (no claim of final topology).
         let stroke = Stroke::new(0.6, Color32::from_rgb(14, 20, 27));
         for &quad in &model.quads {
             let a = Vec3::from_array(model.vertices[quad[0] as usize]);
@@ -205,6 +209,28 @@ fn preview(
                     (project(v0, &basis, rect), project(v1, &basis, rect))
                 {
                     painter.line_segment([p0, p1], stroke);
+                }
+            }
+        }
+        if anatomy_target {
+            use std::collections::HashSet;
+            let mut edges = HashSet::<(u32,u32)>::new();
+            for &[a, b, c] in &model.triangles {
+                let va = Vec3::from_array(model.vertices[a as usize]);
+                let vb = Vec3::from_array(model.vertices[b as usize]);
+                let vc = Vec3::from_array(model.vertices[c as usize]);
+                if (vb - va).cross(vc - va).dot(basis.eye - va) <= 0.0 {
+                    continue;
+                }
+                for (u,v) in [(a,b),(b,c),(c,a)] {
+                    let key = (u.min(v),u.max(v));
+                    if !edges.insert(key) { continue; }
+                    if let (Some((p0,_)),Some((p1,_))) = (
+                        project(Vec3::from_array(model.vertices[u as usize]),&basis,rect),
+                        project(Vec3::from_array(model.vertices[v as usize]),&basis,rect),
+                    ) {
+                        painter.line_segment([p0,p1],stroke);
+                    }
                 }
             }
         }
@@ -234,7 +260,21 @@ fn preview(
             }
         }
     }
-    draw_model_statistics(&painter, rect, model, recipe);
+    draw_model_statistics(&painter, rect, model, recipe, anatomy_target);
+}
+
+/// Adapt the disposable target triangles for the existing 3D viewport.
+/// No rig, quad cage, UVs or exported mesh are created by this conversion.
+fn anatomy_preview_model(surface: TargetSurface) -> Model {
+    Model {
+        vertices: surface.vertices,
+        normals: surface.normals,
+        triangles: surface.triangles,
+        quads: Vec::new(),
+        caps: Vec::new(),
+        joints: Vec::new(),
+        influences: Vec::new(),
+    }
 }
 
 struct StudioApp {
@@ -242,6 +282,8 @@ struct StudioApp {
     saved: Recipe,
     recipe_path: Option<PathBuf>,
     model: Option<Model>,
+    anatomy_preview: Option<Model>,
+    show_anatomy_target: bool,
     camera: Camera,
     wireframe: bool,
     show_skeleton: bool,
@@ -261,6 +303,7 @@ impl StudioApp {
         let model = generate(&recipe).ok();
         Self { saved: recipe.clone(), recipe_path: None,
             camera: Camera::framed(recipe.height), recipe, model,
+            anatomy_preview: None, show_anatomy_target: false,
             wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
             show_advanced: false, notice: None }
     }
@@ -287,6 +330,21 @@ impl StudioApp {
     }
 
     fn regenerate(&mut self) {
+        if self.show_anatomy_target {
+            match AnatomyTarget::from_recipe(&self.recipe)
+                .and_then(|target| target.sample_preview())
+            {
+                Ok(surface) => {
+                    self.anatomy_preview = Some(anatomy_preview_model(surface));
+                    self.notice = None;
+                }
+                Err(error) => {
+                    self.anatomy_preview = None;
+                    self.notice = Some((format!("Anatomical target failed: {error}"), true));
+                }
+            }
+            return;
+        }
         match generate_posed(&self.recipe, self.pose) {
             Ok(model) => {
                 self.model = Some(model);
@@ -336,6 +394,10 @@ impl StudioApp {
     }
 
     fn export(&mut self) {
+        if self.show_anatomy_target {
+            self.notice = Some(("Anatomy target is an unrigged preview; switch to Topology to export".into(), true));
+            return;
+        }
         if self.model.is_none() {
             self.notice = Some(("Export failed: no validated model".into(), true));
             return;
@@ -516,12 +578,18 @@ impl eframe::App for StudioApp {
             ui.horizontal(|ui| {
                 ui.label("Preview");
                 ui.separator();
+                let changed = ui.selectable_value(&mut self.show_anatomy_target, false, "Topology").changed()
+                    | ui.selectable_value(&mut self.show_anatomy_target, true, "Anatomy target").changed();
+                if changed { self.regenerate(); }
                 ui.checkbox(&mut self.wireframe, "Wireframe");
-                ui.checkbox(&mut self.show_skeleton, "Skeleton");
+                if !self.show_anatomy_target {
+                    ui.checkbox(&mut self.show_skeleton, "Skeleton");
+                }
                 if ui.button("Reset view").clicked() {
                     self.camera = Camera::framed(self.recipe.height);
                 }
             });
+            if !self.show_anatomy_target {
             let mut pose_changed = false;
             ui.horizontal(|ui| {
                 ui.label("Left arm");
@@ -550,11 +618,21 @@ impl eframe::App for StudioApp {
                 }
             });
             if pose_changed { self.regenerate(); }
-            ui.add_space(6.0);
-            if let Some(model) = self.model.as_ref() {
-                preview(ui, model, &self.recipe, &mut self.camera, self.wireframe, self.show_skeleton);
             } else {
-                ui.centered_and_justified(|ui| { ui.label("No valid mesh to preview"); });
+                ui.label("Continuous blended anatomy • temporary triangulated preview • no rig or topology fitting");
+            }
+            ui.add_space(6.0);
+            let selected = if self.show_anatomy_target {
+                self.anatomy_preview.as_ref()
+            } else {
+                self.model.as_ref()
+            };
+            if let Some(model) = selected {
+                preview(ui, model, &self.recipe, &mut self.camera, self.wireframe,
+                    self.show_skeleton && !self.show_anatomy_target,
+                    self.show_anatomy_target);
+            } else {
+                ui.centered_and_justified(|ui| { ui.label("No valid surface to preview"); });
             }
         });
     }
