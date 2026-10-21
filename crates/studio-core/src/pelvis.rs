@@ -490,6 +490,9 @@ mod tests {
 
     #[test]
     fn waist_to_pelvis_corner_quads_use_stable_alternative_diagonals() {
+        for girth in [0.7, 1.0, 1.4] {
+        let mut recipe = Recipe::default();
+        recipe.morphology.thigh_girth = girth;
         let mut builder = MeshBuilder::default();
         let waist = builder.loop_vertices((0..32).map(|i| {
             let theta = TAU * i as f32 / 32.0;
@@ -502,7 +505,7 @@ mod tests {
         builder.stitch(&waist, &upper).unwrap();
         let crotch = builder.vertex(Vec3::ZERO);
         builder.cap(&upper, Vec3::new(0.0, 0.86, 0.0), false).unwrap();
-        append(&mut builder, &waist, crotch, &Recipe::default()).unwrap();
+        append(&mut builder, &waist, crotch, &recipe).unwrap();
         // First 32 quads connect waist to a mock torso ring. The two
         // special pelvis quads are at indices 39 and 72.
         for index in [39_usize, 72_usize] {
@@ -522,8 +525,9 @@ mod tests {
             let vd = builder.vertices[d as usize];
             let n1 = (vb - va).cross(vd - va).normalize();
             let n2 = (vc - vb).cross(vd - vb).normalize();
-            assert!(n1.dot(n2) > 0.75);
+            assert!(n1.dot(n2) > 0.75, "Corner crease at girth={girth}");
         }
+         }
     }
 
     #[test]
