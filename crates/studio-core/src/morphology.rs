@@ -98,7 +98,7 @@ pub fn deform_surface(reference: Vec3, base: Vec3, m: &Morphology, height_scale:
     let mut out = base + structural_offset(p, m, height_scale);
     let abs_x = p.x.abs();
     let side = p.x.signum();
-    let torso = (1.0 - smoothstep(0.22, 0.32, abs_x));
+    let torso = 1.0 - smoothstep(0.22, 0.32, abs_x);
     let upper_chest = band(p.y, 1.16, 1.28, 1.39, 1.51) * torso;
     let lower_ribs = band(p.y, 0.99, 1.11, 1.22, 1.34) * torso;
     let waist = band(p.y, 0.93, 1.03, 1.14, 1.27) * torso;
@@ -106,7 +106,7 @@ pub fn deform_surface(reference: Vec3, base: Vec3, m: &Morphology, height_scale:
     let upper_back = band(p.y, 1.00, 1.16, 1.35, 1.52) * torso;
     let hip = band(p.y, 0.76, 0.85, 0.95, 1.06) * (1.0 - smoothstep(0.24, 0.35, abs_x));
     let head = smoothstep(1.51, 1.63, p.y);
-    let neck = band(p.y, 1.42, 1.48, 1.54, 1.62) * (1.0 - smoothstep(.11,.18,abs_x));
+    let neck = band(p.y, 1.42, 1.48, 1.54, 1.62) * (1.0 - smoothstep(0.11,0.18,abs_x));
 
     // Width and depth are independent so broad builds are not necessarily thick.
     out.x += p.x * (0.55 * (m.chest_width - 1.0) * upper_chest
@@ -130,7 +130,7 @@ pub fn deform_surface(reference: Vec3, base: Vec3, m: &Morphology, height_scale:
     let arm = smoothstep(0.26, 0.37, abs_x);
     let upper_arm = band(p.y, 1.16, 1.24, 1.38, 1.46) * arm;
     let forearm = band(p.y, 1.04, 1.09, 1.19, 1.26) * arm;
-    let wrist = band(p.y, 1.00, 1.04, 1.09, 1.14) * smoothstep(.48,.55,abs_x);
+    let wrist = band(p.y, 1.00, 1.04, 1.09, 1.14) * smoothstep(0.48,0.55,abs_x);
     let hand = smoothstep(0.55, 0.63, abs_x) * (1.0-smoothstep(1.01, 1.09, p.y));
     let arm_girth = 0.8*(m.upper_arm_girth-1.0)*upper_arm
         +0.8*(m.forearm_girth-1.0)*forearm
@@ -143,15 +143,15 @@ pub fn deform_surface(reference: Vec3, base: Vec3, m: &Morphology, height_scale:
 
     // Calibrated around the leg centre lines, preserving left/right symmetry.
     let leg = smoothstep(0.07, 0.12, abs_x);
-    let thigh = band(p.y, .48,.60,.78,.94)*leg;
-    let calf = band(p.y, .14,.25,.43,.57)*leg;
-    let ankle = band(p.y, .065,.10,.16,.21)*leg;
+    let thigh = band(p.y, 0.48,0.60,0.78,0.94)*leg;
+    let calf = band(p.y, 0.14,0.25,0.43,0.57)*leg;
+    let ankle = band(p.y, 0.065,0.10,0.16,0.21)*leg;
     let leg_girth = 0.75*(m.thigh_girth-1.0)*thigh
         + 0.75*(m.calf_girth-1.0)*calf
         + 0.6*(m.ankle_width-1.0)*ankle;
     out.x += side*(abs_x-0.13)*leg_girth*height_scale;
     out.z += p.z*leg_girth*height_scale;
-    let foot = (1.0 - smoothstep(.095,.17,p.y))*leg;
+    let foot = (1.0 - smoothstep(0.095,0.17,p.y))*leg;
     out.z += (p.z-0.065)*(m.foot_length-1.0)*foot*height_scale;
     out.x += side*(abs_x-0.13)*(m.foot_width-1.0)*foot*height_scale;
     out
