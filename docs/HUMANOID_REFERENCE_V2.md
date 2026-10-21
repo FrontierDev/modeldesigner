@@ -37,3 +37,7 @@ cargo run -p modeldesigner --release
 ```
 
 Review the neutral mesh from front, profile and back with wireframe off, and inspect facial features, shoulders, groin, thumbs, knees and feet. Confirm v1 saved recipes load without changing geometry and that model statistics reflect the selected version.
+
+## Subsequent v3 revision
+
+Generator v3 now replaces the upper-body reference to address visibly balloon-like chest and shoulder forms, and introduces two clavicle bones. The v2 mesh and 19-joint hierarchy remain untouched for saved v2 recipes. See `HUMANOID_SHOULDER_V3.md`.
