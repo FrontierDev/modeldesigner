@@ -62,7 +62,7 @@ fn project(p: Vec3, basis: &Basis, rect: Rect) -> Option<(Pos2, f32)> {
 struct Face {
     points: [Pos2; 3],
     depth: f32,
-    color: Color32,
+    colors: [Color32; 3],
 }
 
 /// Render triangles without the anti-aliased convex-polygon tessellator.
@@ -74,11 +74,11 @@ fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
     mesh.indices.reserve(faces.len() * 3);
     for face in faces {
         let start = mesh.vertices.len() as u32;
-        for &pos in &face.points {
+        for (&pos, &color) in face.points.iter().zip(face.colors.iter()) {
             mesh.vertices.push(egui::epaint::Vertex {
                 pos,
                 uv: egui::epaint::WHITE_UV,
-                color: face.color,
+                color,
             });
         }
         mesh.indices.extend_from_slice(&[start, start + 1, start + 2]);
@@ -86,7 +86,56 @@ fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
     mesh
 }
 
-fn preview(ui: &mut egui::Ui, model: &Model, camera: &mut Camera, wireframe: bool, skeleton: bool) {
+/// Same fixed top-right statistics panel pattern as envmoddesigner.
+fn draw_model_statistics(painter: &egui::Painter, viewport: Rect, model: &Model, recipe: &Recipe) {
+    let panel = Rect::from_min_size(
+        viewport.right_top() + egui::vec2(-194.0, 12.0),
+        egui::vec2(182.0, 165.0),
+    );
+    painter.rect_filled(panel, 5.0, Color32::from_rgba_unmultiplied(28, 32, 38, 228));
+    let entries = [
+        ("MODEL", String::new()),
+        ("Type", "Humanoid".to_owned()),
+        ("Generator", format!("v{}", recipe.generator_version)),
+        ("Height", format!("{:.2} m", recipe.height)),
+        ("Vertices", model.vertices.len().to_string()),
+        ("Triangles", model.triangles.len().to_string()),
+        ("Joints", model.joints.len().to_string()),
+    ];
+    for (index, (label, value)) in entries.iter().enumerate() {
+        let y = panel.top() + 11.0 + index as f32 * 21.0;
+        painter.text(
+            egui::pos2(panel.left() + 11.0, y),
+            egui::Align2::LEFT_TOP,
+            label,
+            egui::FontId::proportional(11.0),
+            Color32::from_gray(if index == 0 { 215 } else { 185 }),
+        );
+        if !value.is_empty() {
+            painter.text(
+                egui::pos2(panel.right() - 11.0, y),
+                egui::Align2::RIGHT_TOP,
+                value,
+                egui::FontId::monospace(11.0),
+                Color32::from_gray(215),
+            );
+        }
+    }
+}
+
+fn shaded_vertex(normal: Vec3, light: Vec3) -> Color32 {
+    let illumination = 0.39 + 0.61 * normal.dot(light).max(0.0);
+    Color32::from_rgb(
+        (174.0 * illumination) as u8,
+        (185.0 * illumination) as u8,
+        (204.0 * illumination) as u8,
+    )
+}
+
+fn preview(
+    ui: &mut egui::Ui, model: &Model, recipe: &Recipe,
+    camera: &mut Camera, wireframe: bool, skeleton: bool,
+) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
     if response.dragged_by(egui::PointerButton::Primary) {
@@ -130,13 +179,10 @@ fn preview(ui: &mut egui::Ui, model: &Model, camera: &mut Camera, wireframe: boo
         let (Some((pa, da)), Some((pb, db)), Some((pc, dc))) =
             (project(va, &basis, rect), project(vb, &basis, rect), project(vc, &basis, rect))
         else { continue; };
-        let illumination = 0.36 + 0.64 * normal.dot(light).max(0.0);
-        let colour = Color32::from_rgb(
-            (174.0 * illumination) as u8,
-            (185.0 * illumination) as u8,
-            (204.0 * illumination) as u8,
-        );
-        faces.push(Face { points: [pa, pb, pc], depth: (da + db + dc) / 3.0, color: colour });
+        let colors = [a, b, c].map(|index| {
+            shaded_vertex(Vec3::from_array(model.normals[index as usize]), light)
+        });
+        faces.push(Face { points: [pa, pb, pc], depth: (da + db + dc) / 3.0, colors });
     }
     faces.sort_by(|a, b| b.depth.total_cmp(&a.depth));
     // Bypass convex-polygon anti-aliasing; it can stretch thin triangles
@@ -164,6 +210,7 @@ fn preview(ui: &mut egui::Ui, model: &Model, camera: &mut Camera, wireframe: boo
             }
         }
     }
+    draw_model_statistics(&painter, rect, model, recipe);
 }
 
 struct StudioApp {
@@ -444,7 +491,7 @@ impl eframe::App for StudioApp {
             });
             ui.add_space(6.0);
             if let Some(model) = self.model.as_ref() {
-                preview(ui, model, &mut self.camera, self.wireframe, self.show_skeleton);
+                preview(ui, model, &self.recipe, &mut self.camera, self.wireframe, self.show_skeleton);
             } else {
                 ui.centered_and_justified(|ui| { ui.label("No valid mesh to preview"); });
             }
@@ -463,7 +510,7 @@ mod preview_tests {
             egui::pos2(100.0001, 100.0),
             egui::pos2(100.0, 150.0),
         ];
-        let face = Face { points, depth: 2.0, color: Color32::GRAY };
+        let face = Face { points, depth: 2.0, colors: [Color32::GRAY; 3] };
         let mesh = triangle_mesh(&[face]);
         assert!(mesh.is_valid());
         assert_eq!(mesh.indices.as_slice(), &[0, 1, 2]);
@@ -476,11 +523,23 @@ mod preview_tests {
     }
 
     #[test]
+    fn triangle_mesh_preserves_per_vertex_shading() {
+        let face = Face {
+            points: [egui::pos2(0.0, 0.0), egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0)],
+            depth: 1.0,
+            colors: [Color32::RED, Color32::GREEN, Color32::BLUE],
+        };
+        let mesh = triangle_mesh(&[face]);
+        assert_eq!(mesh.vertices.iter().map(|v| v.color).collect::<Vec<_>>(),
+            [Color32::RED, Color32::GREEN, Color32::BLUE]);
+    }
+
+    #[test]
     fn large_triangle_batches_use_untruncated_indices() {
         let face = Face {
             points: [egui::pos2(10.0, 10.0), egui::pos2(20.0, 10.0), egui::pos2(10.0, 20.0)],
             depth: 2.0,
-            color: Color32::WHITE,
+            colors: [Color32::WHITE; 3],
         };
         let faces = vec![face; 35_000];
         let mesh = triangle_mesh(&faces);
