@@ -323,8 +323,8 @@ fn write_atomic(path: &Path, data: &str) -> Result<(), String> {
 }
 
 impl eframe::App for StudioApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        egui::Panel::top("toolbar").show(ui, |ui| {
             ui.add_space(5.0);
             ui.horizontal(|ui| {
                 ui.heading("MODEL DESIGNER");
@@ -339,20 +339,20 @@ impl eframe::App for StudioApp {
             });
             ui.add_space(5.0);
         });
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
                 if let Some((message, is_error)) = &self.notice {
                     ui.colored_label(if *is_error { Color32::LIGHT_RED } else { Color32::LIGHT_GREEN }, message);
                 } else { ui.small("Y-up • Metres • Canonical topology v1 • No materials"); }
             });
         });
-        egui::SidePanel::left("presets").resizable(true).default_width(212.0)
-            .min_width(190.0).show(ctx, |ui| { ui.add_space(10.0); self.draw_library(ui); });
-        egui::SidePanel::right("inspector").resizable(true).default_width(310.0)
-            .min_width(265.0).show(ctx, |ui| {
+        egui::Panel::left("presets").resizable(true).default_size(212.0)
+            .min_size(190.0).show(ui, |ui| { ui.add_space(10.0); self.draw_library(ui); });
+        egui::Panel::right("inspector").resizable(true).default_size(310.0)
+            .min_size(265.0).show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| { ui.add_space(10.0); self.draw_inspector(ui); });
             });
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             if let Some(model) = self.model.as_ref() {
                 preview(ui, model, &mut self.camera, self.wireframe, self.show_skeleton);
             } else { ui.centered_and_justified(|ui| { ui.label("No valid mesh to preview"); }); }
