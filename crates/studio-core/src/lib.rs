@@ -262,6 +262,93 @@ mod tests {
     }
 
     #[test]
+    fn all_upper_body_slider_extremes_preserve_topology_and_weights() {
+        let reference = generate(&Recipe::default()).unwrap();
+        let active: Vec<BuildControl> = BUILD_CONTROLS.iter().copied()
+            .filter(|control| control.implemented()).collect();
+        assert_eq!(active.len(), 29);
+        for control in active {
+            assert_ne!(control.description(),
+                "Not available until the corresponding anatomy is implemented.");
+            for value in [control.min, control.max] {
+                let mut recipe = Recipe::default();
+                control.set(&mut recipe, value);
+                let model = generate(&recipe)
+                    .unwrap_or_else(|err| panic!("{}={value}: {err}", control.id));
+                assert_eq!(model.quads, reference.quads, "{}", control.id);
+                assert_eq!(model.triangles, reference.triangles, "{}", control.id);
+                assert_eq!(model.joints.len(), reference.joints.len());
+                assert_eq!(model.influences.len(), reference.influences.len());
+                assert!(model.vertices.iter().flatten().all(|value| value.is_finite()));
+                assert!(model.normals.iter().flatten().all(|value| value.is_finite()));
+            }
+        }
+    }
+
+    #[test]
+    fn morphology_recipe_roundtrips_new_parameters() {
+        let mut recipe = Recipe::default();
+        recipe.morphology.pectoral_fullness = 0.9;
+        recipe.morphology.deltoid_volume = 0.8;
+        recipe.morphology.biceps_volume = 0.7;
+        recipe.morphology.waist_depth = 0.85;
+        recipe.morphology.shoulder_forward = 0.25;
+        let json = recipe.to_json().unwrap();
+        assert_eq!(Recipe::from_json(&json).unwrap(), recipe);
+        let schema: serde_json::Value =
+            serde_json::from_str(&controls::build_schema_json().unwrap()).unwrap();
+        let sliders = schema["controls"].as_array().unwrap();
+        assert_eq!(sliders.len(), 29);
+        assert!(sliders.iter().all(|control| control["description"].as_str()
+            .is_some_and(|description| !description.is_empty())));
+    }
+
+    #[test]
+    fn chest_and_arm_controls_affect_expected_regions() {
+        let baseline = generate(&Recipe::default()).unwrap();
+        let mut pec = Recipe::default();
+        pec.morphology.pectoral_fullness = 1.0;
+        let pec_mesh = generate(&pec).unwrap();
+        // Ring row 8, central anterior vertex at column 0.
+        let sternum_front = 8 * 32;
+        assert!(pec_mesh.vertices[sternum_front][2] >
+            baseline.vertices[sternum_front][2]);
+
+        let mut biceps = Recipe::default();
+        biceps.morphology.biceps_volume = 1.0;
+        let mut triceps = Recipe::default();
+        triceps.morphology.triceps_volume = 1.0;
+        let front = generate(&biceps).unwrap();
+        let rear = generate(&triceps).unwrap();
+        // First arm's mid-biceps ring: 16 vertices, indices 466..482.
+        let indices = 466..482;
+        let max_z = |model: &Model| indices.clone()
+            .map(|index| model.vertices[index][2])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let min_z = |model: &Model| indices.clone()
+            .map(|index| model.vertices[index][2])
+            .fold(f32::INFINITY, f32::min);
+        assert!(max_z(&front) > max_z(&baseline));
+        assert!(min_z(&rear) < min_z(&baseline));
+    }
+
+    #[test]
+    fn proportions_move_relevant_skeletal_landmarks() {
+        let original = generate(&Recipe::default()).unwrap();
+        let mut shoulders = Recipe::default();
+        shoulders.morphology.shoulder_forward = 1.0;
+        let moved = generate(&shoulders).unwrap();
+        assert!(moved.joints[5].position[2] > original.joints[5].position[2]);
+        assert!(moved.joints[8].position[2] > original.joints[8].position[2]);
+
+        let mut neck = Recipe::default();
+        neck.morphology.neck_length = 1.15;
+        let higher = generate(&neck).unwrap();
+        assert!(higher.joints[3].position[1] > original.joints[3].position[1]);
+        assert_eq!(higher.quads, original.quads);
+    }
+
+    #[test]
     fn one_arm_at_a_time_moves_only_its_own_shoulder_and_elbow() {
         let recipe = Recipe::default();
         let neutral = generate(&recipe).unwrap();

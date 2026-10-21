@@ -694,6 +694,18 @@ mod tests {
     }
 
     #[test]
+    fn torso_surface_controls_do_not_shift_the_shoulder_joint_unnecessarily() {
+        let neutral = Measurements::from(&Recipe::default());
+        let mut recipe = Recipe::default();
+        recipe.morphology.abdomen_fullness = 1.0;
+        recipe.morphology.upper_back_fullness = 0.8;
+        let modified = Measurements::from(&recipe);
+        assert_eq!(neutral.shoulder_centre(1.0), modified.shoulder_centre(1.0));
+        assert_ne!(neutral.torso_point(3, 0), modified.torso_point(3, 0));
+        assert_ne!(neutral.torso_point(8, 16), modified.torso_point(8, 16));
+    }
+
+    #[test]
     fn supported_parameters_preserve_topology() {
         let baseline = build(&Recipe::default()).unwrap();
         let mut modified = Recipe::default();
