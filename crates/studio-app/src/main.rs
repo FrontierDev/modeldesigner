@@ -336,9 +336,10 @@ impl StudioApp {
     }
 
     fn export(&mut self) {
-        let Some(model) = self.model.as_ref() else {
-            self.notice = Some(("Export failed: no validated model".into(), true)); return;
-        };
+        if self.model.is_none() {
+            self.notice = Some(("Export failed: no validated model".into(), true));
+            return;
+        }
         let Some(mut path) = FileDialog::new().add_filter("Wavefront OBJ", &["obj"])
             .set_file_name("upper-body.obj").save_file() else { return; };
         if path.extension().is_none() { path.set_extension("obj"); }
