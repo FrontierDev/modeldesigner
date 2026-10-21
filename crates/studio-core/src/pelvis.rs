@@ -125,8 +125,11 @@ fn outside_index(i: usize, j: usize) -> Option<usize> {
     None
 }
 
+/// All three strictly interior lattice points of each 2×4 thigh socket
+/// belong exclusively to omitted cells. Allocating any of them produces
+/// orphaned vertices (and shifts deterministic output counts).
 fn unused_inside_hole(i: usize, j: usize) -> bool {
-    j == 4 && (i == 2 || i == 6)
+    (i == 2 || i == 6) && (3..=5).contains(&j)
 }
 
 fn is_hole_cell(i: usize, j: usize) -> bool {
@@ -240,8 +243,8 @@ pub fn append(
     let d = Dimensions::from(recipe);
     let mut grid = [[UNUSED; 9]; 9];
 
-    // Allocate *only* vertices used by faces. The previous implementation
-    // silently created two isolated vertices inside the thigh openings.
+    // Allocate *only* vertices used by faces. Each 2×4 socket omits three
+    // grid vertices along its centreline, not just the central one.
     for j in 0..=GRID {
         for i in 0..=GRID {
             grid[j][i] = if let Some(column) = outside_index(i, j) {
@@ -370,6 +373,22 @@ mod tests {
     }
 
     #[test]
+    fn every_socket_interior_vertex_is_skipped() {
+        let hole_points: Vec<(usize, usize)> = (1..8)
+            .flat_map(|i| (1..8).map(move |j| (i, j)))
+            .filter(|&(i,j)| unused_inside_hole(i,j))
+            .collect();
+        assert_eq!(hole_points, vec![
+            (2,3), (2,4), (2,5), (6,3), (6,4), (6,5)
+        ]);
+        for start in [1, 5] {
+            for j in 3..=5 {
+                assert!(unused_inside_hole(start + 1, j));
+            }
+        }
+    }
+
+    #[test]
     fn three_boundary_patch_has_no_unused_socket_vertices() {
         let mut mesh = MeshBuilder::default();
         let waist = mesh.loop_vertices((0..32).map(|i| {
@@ -385,7 +404,7 @@ mod tests {
         mesh.cap(&upper, Vec3::new(0.0, 0.86, 0.0), false).unwrap();
         let before = mesh.vertices.len();
         let lower = append(&mut mesh, &waist, crotch, &Recipe::default()).unwrap();
-        assert_eq!(mesh.vertices.len() - before, 144);
+        assert_eq!(mesh.vertices.len() - before, 140);
         assert_eq!(lower.leg_rings[0].len(), 4);
         assert_eq!(lower.leg_rings[1].len(), 4);
         let surface = mesh.build().unwrap();

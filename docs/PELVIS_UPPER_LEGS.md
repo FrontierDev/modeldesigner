@@ -29,7 +29,7 @@ The original ten joints are retained without reindexing. Left hip/knee are 10/11
 
 ## Expected neutral counts
 
-- **724 vertices**
+- **720 vertices**
 - **656 quads**
 - **1,400 render triangles** (including temporary end caps)
 - **14 joints**
@@ -63,3 +63,7 @@ GitHub Actions is **manual-only** and must not be triggered until the user expli
 ## Next milestone
 
 Review the neutral pelvis and hip-to-thigh silhouette in the native viewport from front, profile and rear, with and without wireframe. In particular, ensure the torso-to-hip contour does not form a hem, the crotch looks like a saddle instead of a detached bridge, and the upper thighs follow the hip mass continuously. Only then proceed with independent hip skeletal rotation and correctives.
+
+## Socket grid correction
+
+The 2×4 thigh openings remove six strictly interior lattice vertices (three per opening), not two. The earlier version omitted only the central two and allocated four unreferenced vertices. The six interior points are now skipped entirely, bringing the construction-derived neutral model to 720 vertices, 656 quads and 1,400 renderer triangles. Tests assert both the exact omitted coordinates and that every generated vertex participates in a face. No automatic CI should be run.
