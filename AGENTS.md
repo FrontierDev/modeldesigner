@@ -11,3 +11,6 @@
 - Treat the authoring application as multi-model in design, while retaining humanoids as the only implemented model type until new generators exist.
 - Keep user-facing build sliders minimal and aligned with the validated `studio-core::BUILD_CONTROLS` definitions. Do not duplicate slider bounds, change recipe units, or silently alter schema/generator versions.
 - Keep mesh diagnostics in preview controls, not the player-style Build inspector. Avoid milestone copy and verbose explanatory labels in the UI.
+- Define any new build parameter in the versioned recipe, shared `controls::BUILD_CONTROLS` contract and regional deformation engine. Keep IDs stable, validate bounds, and extend per-parameter topology regression tests.
+- Keep legacy v1 recipes readable using neutral serde defaults for new optional morphology fields. Do not silently change geometry at all-neutral defaults.
+- Use Player mode for `player_editable` controls, Advanced for all controls, and preserve consistent schema export via `controls::build_schema_json`.
