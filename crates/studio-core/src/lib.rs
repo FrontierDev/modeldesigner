@@ -9,11 +9,13 @@ use std::sync::OnceLock;
 
 pub mod controls;
 pub mod morphology;
+mod humanoid_v2;
 pub use controls::{BuildControl, BuildParameter, BuildSection, BUILD_CONTROLS};
 pub use morphology::Morphology;
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const GENERATOR_VERSION: u32 = 1;
+pub const LEGACY_GENERATOR_VERSION: u32 = 1;
+pub const GENERATOR_VERSION: u32 = 2;
 pub const REFERENCE_HEIGHT: f32 = 1.75;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,7 +61,8 @@ impl Default for Recipe {
 
 impl Recipe {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != SCHEMA_VERSION || self.generator_version != GENERATOR_VERSION {
+        if self.schema_version != SCHEMA_VERSION
+            || ![LEGACY_GENERATOR_VERSION, GENERATOR_VERSION].contains(&self.generator_version) {
             return Err("Unsupported recipe schema or generator version".into());
         }
         if self.name.trim().is_empty() || self.name.len() > 120 {
@@ -105,6 +108,7 @@ pub struct VertexInfluence {
 #[derive(Clone, Debug)]
 pub struct Model {
     pub vertices: Vec<[f32; 3]>,
+    pub normals: Vec<[f32; 3]>,
     pub triangles: Vec<[u32; 3]>,
     pub joints: Vec<Joint>,
     pub influences: Vec<VertexInfluence>,
@@ -152,20 +156,27 @@ struct Canonical {
     influences: Vec<VertexInfluence>,
 }
 
-static CANONICAL: OnceLock<Canonical> = OnceLock::new();
+static CANONICAL_V1: OnceLock<Canonical> = OnceLock::new();
+static CANONICAL_V2: OnceLock<Canonical> = OnceLock::new();
 
 /// Every recipe uses the identical canonical mesh and vertex indexing.
 pub fn generate(recipe: &Recipe) -> Result<Model, String> {
     recipe.validate()?;
-    let reference = CANONICAL.get_or_init(build_reference);
+    let reference = match recipe.generator_version {
+        LEGACY_GENERATOR_VERSION => CANONICAL_V1.get_or_init(build_reference_v1),
+        GENERATOR_VERSION => CANONICAL_V2.get_or_init(build_reference_v2),
+        _ => return Err("Unsupported humanoid generator version".into()),
+    };
     let joints = skeleton(recipe);
-    let vertices = reference
+    let vertices: Vec<[f32; 3]> = reference
         .vertices
         .iter()
         .map(|p| deform(*p, recipe).to_array())
         .collect();
+    let normals = vertex_normals(&vertices, &reference.triangles);
     Ok(Model {
         vertices,
+        normals,
         triangles: reference.triangles.clone(),
         joints,
         influences: reference.influences.clone(),
@@ -328,21 +339,60 @@ fn closest_influences(point: Vec3, joints: &[Joint]) -> VertexInfluence {
     VertexInfluence { joint_indices: indices, weights }
 }
 
-fn build_reference() -> Canonical {
-    const NX: usize = 44;
-    const NY: usize = 82;
-    const NZ: usize = 30;
-    let start = Vec3::new(-0.78, -0.06, -0.27);
-    let size = Vec3::new(1.56, 1.90, 0.55);
-    let index = |x: usize, y: usize, z: usize| (z * NY + y) * NX + x;
-    let mut coords = Vec::with_capacity(NX * NY * NZ);
-    let mut scalar = Vec::with_capacity(NX * NY * NZ);
-    for z in 0..NZ { for y in 0..NY { for x in 0..NX {
-        let p = start + Vec3::new(size.x * x as f32 / (NX - 1) as f32,
-                                  size.y * y as f32 / (NY - 1) as f32,
-                                  size.z * z as f32 / (NZ - 1) as f32);
+/// The legacy grid and field remain byte-for-byte compatible with generator v1.
+fn build_reference_v1() -> Canonical {
+    build_reference(
+        reference_field, 44, 82, 30,
+        Vec3::new(-0.78, -0.06, -0.27),
+        Vec3::new(1.56, 1.90, 0.55),
+    )
+}
+
+/// A finer grid resolves brows, nose, ears, palms and ankle transitions.
+fn build_reference_v2() -> Canonical {
+    build_reference(
+        humanoid_v2::field, 60, 106, 44,
+        Vec3::new(-0.82, -0.065, -0.34),
+        Vec3::new(1.64, 1.92, 0.73),
+    )
+}
+
+fn vertex_normals(vertices: &[[f32; 3]], triangles: &[[u32; 3]]) -> Vec<[f32; 3]> {
+    let mut normals = vec![Vec3::ZERO; vertices.len()];
+    for &[a, b, c] in triangles {
+        let a = a as usize;
+        let b = b as usize;
+        let c = c as usize;
+        let va = Vec3::from_array(vertices[a]);
+        let vb = Vec3::from_array(vertices[b]);
+        let vc = Vec3::from_array(vertices[c]);
+        let area_normal = (vb - va).cross(vc - va);
+        if area_normal.is_finite() {
+            normals[a] += area_normal;
+            normals[b] += area_normal;
+            normals[c] += area_normal;
+        }
+    }
+    normals.into_iter().map(|normal| normal.normalize_or_zero().to_array()).collect()
+}
+
+fn build_reference(
+    field: fn(Vec3) -> f32,
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    start: Vec3,
+    size: Vec3,
+) -> Canonical {
+    let index = |x: usize, y: usize, z: usize| (z * ny + y) * nx + x;
+    let mut coords = Vec::with_capacity(nx * ny * nz);
+    let mut scalar = Vec::with_capacity(nx * ny * nz);
+    for z in 0..nz { for y in 0..ny { for x in 0..nx {
+        let p = start + Vec3::new(size.x * x as f32 / (nx - 1) as f32,
+                                  size.y * y as f32 / (ny - 1) as f32,
+                                  size.z * z as f32 / (nz - 1) as f32);
         coords.push(p);
-        scalar.push(reference_field(p));
+        scalar.push(field(p));
     } } }
     let mut vertices = Vec::<Vec3>::new();
     let mut triangles = Vec::<[u32; 3]>::new();
@@ -351,7 +401,7 @@ fn build_reference() -> Canonical {
         [0, 5, 1, 6], [0, 1, 2, 6], [0, 2, 3, 6],
         [0, 3, 7, 6], [0, 7, 4, 6], [0, 4, 5, 6],
     ];
-    for z in 0..NZ - 1 { for y in 0..NY - 1 { for x in 0..NX - 1 {
+    for z in 0..nz - 1 { for y in 0..ny - 1 { for x in 0..nx - 1 {
         let cube = [index(x,y,z), index(x+1,y,z), index(x+1,y+1,z), index(x,y+1,z),
                     index(x,y,z+1), index(x+1,y,z+1), index(x+1,y+1,z+1), index(x,y+1,z+1)];
         for tet in TETS {
@@ -535,6 +585,29 @@ mod tests {
     }
 
     #[test]
+    fn versioned_anatomy_preserves_legacy_meshes() {
+        let mut old = Recipe::default();
+        old.generator_version = LEGACY_GENERATOR_VERSION;
+        let legacy = generate(&old).unwrap();
+        assert_eq!(legacy.vertices.len(), 17_202);
+        assert_eq!(legacy.triangles.len(), 34_400);
+        assert_eq!(Recipe::from_json(&old.to_json().unwrap()).unwrap(), old);
+        let current = generate(&Recipe::default()).unwrap();
+        assert_ne!(legacy.triangles.len(), current.triangles.len());
+        assert_eq!(current.normals.len(), current.vertices.len());
+        assert!(current.normals.iter().flatten().all(|c| c.is_finite()));
+    }
+
+    #[test]
+    fn smooth_preview_normals_are_unit_length_where_faces_exist() {
+        let model = generate(&Recipe::default()).unwrap();
+        for normal in &model.normals {
+            let length = Vec3::from_array(*normal).length();
+            assert!(length == 0.0 || (length - 1.0).abs() < 1e-4);
+        }
+    }
+
+    #[test]
     fn generator_is_deterministic() {
         let recipe = Recipe::default();
         let a = generate(&recipe).unwrap();
@@ -597,7 +670,7 @@ mod tests {
         invalid.arm_length = f32::NAN;
         assert!(invalid.validate().is_err());
         invalid = recipe.clone();
-        invalid.generator_version = 2;
+        invalid.generator_version = 3;
         assert!(invalid.validate().is_err());
         invalid = recipe.clone();
         invalid.body_mass = 1.5;
