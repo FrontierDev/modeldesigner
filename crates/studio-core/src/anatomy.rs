@@ -344,6 +344,46 @@ mod tests {
     }
 
     #[test]
+    fn all_pelvic_and_thigh_controls_change_the_anatomical_field() {
+        use crate::{BuildSection, BUILD_CONTROLS};
+        let normal = AnatomyTarget::from_recipe(&Recipe::default()).unwrap();
+        let probes = [
+            Vec3::new(0.00, 0.83, 0.05),
+            Vec3::new(0.12, 0.77, -0.06),
+            Vec3::new(0.20, 0.48, 0.03),
+            Vec3::new(0.14, 0.37, -0.09),
+            Vec3::new(0.00, 0.68, 0.07),
+        ];
+        for control in BUILD_CONTROLS.iter().copied()
+            .filter(|control| control.implemented()
+                && matches!(control.section, BuildSection::Pelvis | BuildSection::Legs))
+        {
+            let mut recipe = Recipe::default();
+            let alternative = if (control.max - control.default).abs() > 1e-5 {
+                control.max
+            } else { control.min };
+            control.set(&mut recipe, alternative);
+            let modified = AnatomyTarget::from_recipe(&recipe).unwrap();
+            assert!(
+                probes.iter().any(|&p| (normal.field(p) - modified.field(p)).abs() > 1e-5),
+                "Anatomical target does not respond to {}",control.id
+            );
+        }
+    }
+
+    #[test]
+    fn target_volumes_are_distinct_from_fixed_topology_or_skin_data() {
+        let anatomy = AnatomyTarget::from_recipe(&Recipe::default()).unwrap();
+        assert!(anatomy.volumes.iter().any(|v| v.name == "left_adductors"));
+        assert!(anatomy.volumes.iter().any(|v| v.name == "right_quadriceps"));
+        assert!(anatomy.volumes.iter().any(|v| v.name == "left_gluteal"));
+        let sampled = anatomy.sample_preview().unwrap();
+        assert!(!sampled.triangles.is_empty());
+        assert!(sampled.normals.iter()
+            .flatten().all(|component| component.is_finite()));
+    }
+
+    #[test]
     fn preview_is_nonempty_finite_and_has_paired_edges() {
         let target = AnatomyTarget::from_recipe(&Recipe::default()).unwrap();
         let surface = target.sample_preview().unwrap();
