@@ -6,7 +6,8 @@ Native Rust procedural model designer for Ninth Age. The architecture supports m
 
 - `studio-core/src/mesh.rs`: model-independent indexed quad patches, loop stitching, end caps, face triangulation, normal generation and closed/oriented-manifold validation.
 - `studio-core/src/study.rs`: the first anatomical generator, building a torso from parameterized cross-sections, cutting explicit shoulder openings and stitching upper-arm ring surfaces directly into those openings.
-- `studio-core/src/anatomy.rs`: anatomical landmarks, parameter-driven smooth tissue volumes, continuous signed field, and a disposable triangle preview of its surface.
+- `studio-core/src/anatomy.rs`: anatomy landmarks and blended pelvis/thigh volumes, unified field and disposable triangulated preview.
+- `studio-core/src/torso_target.rs`: tapered variable-section waist/ribcage/chest/neck profile, connected deltoid and upper-arm fields, and upper-body morphology controls.
 - `studio-core/src/controls.rs`: shared parameter bounds and a machine-readable subset of currently implemented controls for future client UI reuse.
 - `studio-app`: native editor with preview, recipe controls and OBJ export.
 
@@ -14,11 +15,11 @@ The previous SDF-as-final-mesh generator was removed. A **new, explicitly previe
 
 ## Anatomical target milestone
 
-**The editor opens in Anatomy target mode.** This is a new, unrigged pelvis-and-upper-thigh target, separate from the existing fixed-topology prototype. The control at the top of the viewport switches between **Anatomy target** and **Topology**. The target uses anatomical landmarks for the waist, sacrum, pubic symphysis, bilateral hip joints, greater trochanters and knees. It blends pelvic, abdominal, gluteal, quadriceps, hamstring and adductor volumes into a single continuous implicit surface.
+**The editor opens in Anatomy target mode.** This now shows a unified neutral target from the **neck through the torso, shoulders and upper arms to the pelvis and upper thighs**. The separate, older fixed-topology prototype is preserved for comparison. The control at the top of the viewport switches between **Anatomy target** and **Topology**. The target uses anatomical landmarks for the waist, sacrum, pubic symphysis, bilateral hip joints, greater trochanters and knees. It blends a cross-section-driven waist, ribcage, chest, back and neck with the shoulder and upper-arm fields and existing pelvic, gluteal, quadriceps, hamstring and adductor volumes into **one continuous implicit surface**.
 
 The resulting triangulated preview is **temporary**: no fixed topology, skin weights, UVs, character export or animation-ready joints are claimed. The previous neutral quad study and its OBJ/rig export remain unchanged and are accessible from Topology mode. The Anatomy target mode intentionally blocks export to avoid presenting the disposable triangles as a game-ready model. Pose sliders apply only to Topology mode. Optional **Landmarks** and **Wireframe** overlays support anatomical review.
 
-This phase deliberately focuses on **surface shape before retopology**. The next milestone will be to fit an authored fixed-topology quad cage to the target, after its neutral pelvis, gluteal and thigh silhouettes are accepted.
+This phase deliberately focuses on **surface shape before retopology**. The immediate goal is to review the integrated front, side and rear body proportions—including the waist-to-pelvis transition—before constructing an authored fixed-topology quad cage. The anatomy preview is **not** a rigged or exportable quad model.
 
 See [Anatomical target design](docs/ANATOMICAL_TARGET.md) for mathematical definitions, implementation limitations and validation steps.
 
