@@ -17,7 +17,7 @@ The current output is intentionally **not a complete human**. It consists of a t
 
 **35 functional build sliders** are available across nine anatomical groups: Proportions, Physique, Neck, Torso & back, Chest & pectorals, Shoulders & deltoids, Upper arms, Pelvis, and Upper legs. The editor provides Player/Advanced filtering, per-group resets, global reset and parameter tooltips. All supported values deform the current surface; future head, forearm and lower-body parameters remain hidden and cannot be set to non-neutral values.
 
-The shoulder continues to use intermediate **transition and deltoid-insertion loops**. The connected pelvic split and upper thighs bring the neutral study to **724 vertices, 656 quads and 1,400 render triangles** (including temporary boundary caps). Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
+The shoulder continues to use intermediate **transition and deltoid-insertion loops**. The connected pelvic split and upper thighs bring the neutral study to **720 vertices, 656 quads and 1,400 render triangles** (including temporary boundary caps). Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
 
 The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Clavicles now pivot from their medial/sternal ends. Shoulder attachment weights vary continuously around the axilla and across nearby torso columns, while the deltoid correction preserves transverse radius relative to the posed upper-arm axis. The sternum and opposite arm remain stationary when only one side moves.
 
@@ -59,6 +59,8 @@ See [Upper-body morphology controls](docs/UPPER_BODY_CONTROLS.md) for the full 2
 ## Pelvis and upper-leg milestone
 
 The lower body is now constructed **leg-first**. Two anatomically tilted 12-vertex thigh root rings are placed at the hip landmarks (higher laterally, lower medially around the crotch). The intervening pelvis is solved as a three-boundary quad surface constrained by those two roots and the original 32-vertex waist ring. This replaces both the earlier flared skirt and the later flat pelvic underside. Four upper-thigh rings extend toward the temporary knee caps, with no separate attached tube shells. The crotch and hip contours emerge from the connected boundary geometry.
+
+The current pelvic contour refinement reduces the abrupt outer-hip flare and eases the slope into the crotch. The same thigh loops now form anterior quadriceps, posterior hamstrings, lateral vastus and proximal medial adductor contours, tapering smoothly back to the existing knee boundary. A mild anterior pubic contour and posterior gluteal fullness are applied only to the free pelvic patch vertices; the waist and thigh seams remain fixed.
 
 Six existing parameters are activated: hip width, pelvis tilt, glute volume, thigh girth, stance width and provisional upper-leg length. Bone chains now include hip and knee landmarks on each side. See [the pelvis and upper-leg implementation](docs/PELVIS_UPPER_LEGS.md) for details.
 

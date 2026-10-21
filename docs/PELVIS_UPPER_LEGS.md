@@ -48,6 +48,29 @@ These are construction-derived counts, not yet verified by a Rust compiler in th
 
 An independent Python implementation of the 3-boundary harmonic surface passed **192 combinations** of hip width, thigh girth, glute volume, pelvic tilt, leg length and stance width. It reported oriented-manifold edges, nondegenerate triangles and separated thigh roots for those combinations. It is not a substitute for compiling and viewing the Rust model.
 
+## Neutral pelvis/thigh contour refinement — 21 October 2026
+
+The first viable leg-first pelvic construction still had an abrupt outer hip bulge, a sharply pitched crotch and largely cylindrical thighs. The following refinement **changes vertex positions only**, without modifying the patch graph:
+
+- Reduced proximal root lateral radius from 0.083 to 0.074 of the metre reference, while retaining a proportional medial clearance bound.
+- Reduced the lateral-to-medial thigh-root slope from 0.094 to 0.077 and slightly raised the centre of the root contour. This softens the V-shaped groin junction.
+- Balanced the proximal front/back radii and added modest anterior pubic and posterior gluteal surface projection. All pelvic interior correctives remain constrained by fixed waist and leg-root seams.
+- Replaced the uniform leg loft interpolation with an anatomical contour function. Quadriceps shape the anterior surface, hamstrings the posterior, lateral vastus the outer thigh and adductors the proximal medial thigh. These variations fade out towards the knee and are influenced by the existing musculature slider.
+- Kept the existing four 12-vertex thigh rings, 14-joint skeleton, stable indices, temporary knee caps and active morphology controls.
+
+**Local validation:** An independent Python reproduction of the modified surfaces passed 432 lower-body parameter combinations (the root/loft profile) and a further 144 combinations incorporating the revised pelvic free-vertex contour. In those sampled cases there were no unmatched oriented mesh edges, degenerate triangle areas or root-gap closures. These are *geometric checks*, not Rust unit-test execution or a guarantee that the anatomy now looks correct from every angle.
+
+No GitHub Actions run was started; CI remains manual-only. To test the Rust implementation locally:
+
+```powershell
+cargo fmt --all
+cargo check --workspace
+cargo test --workspace
+cargo run -p modeldesigner --release
+```
+
+Inspect front, side, rear and three-quarter silhouettes in both solid and wireframe, including extreme hip-width, thigh-girth and musculature combinations. Hip posing and corrective skinning should remain out of scope until the neutral silhouette is accepted.
+
 ## Run local checks
 
 ```powershell
