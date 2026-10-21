@@ -352,9 +352,9 @@ mod tests {
     #[test]
     fn pelvis_and_thigh_controls_keep_shared_manifold_topology() {
         let default = generate(&Recipe::default()).unwrap();
-        assert_eq!(default.vertices.len(), 758);
-        assert_eq!(default.quads.len(), 688);
-        assert_eq!(default.triangles.len(), 1464);
+        assert_eq!(default.vertices.len(), 726);
+        assert_eq!(default.quads.len(), 656);
+        assert_eq!(default.triangles.len(), 1400);
         assert_eq!(default.joints.len(), 14);
         for control in BUILD_CONTROLS.iter().copied().filter(|c| c.implemented()
             && matches!(c.section, BuildSection::Pelvis | BuildSection::Legs))

@@ -298,7 +298,14 @@ mod tests {
             mesh.stitch(&lower, &upper).unwrap();
             let crotch = mesh.vertex(Vec3::ZERO);
             mesh.cap(&upper, Vec3::new(0.0, 0.86 * scale, 0.0), false).unwrap();
+            let before_pelvis = mesh.vertices.len();
             let lower_body = append(&mut mesh, &lower, crotch, &recipe).unwrap();
+            // The old construction added 32 vertices for a flared skirt.
+            // This uses the EXISTING lower torso ring and only creates
+            // the 48 required grid interiors, 96 loft vertices, and 2 caps.
+            assert_eq!(mesh.vertices.len() - before_pelvis, 146);
+            assert!(mesh.vertices[crotch as usize].y
+                < mesh.vertices[lower[0] as usize].y - 0.04 * scale);
             assert_eq!(lower_body.leg_rings.len(), 2);
             assert!(lower_body.leg_rings.iter().all(|r| {
                 r.len() == 4 && r.iter().all(|loop_ids| loop_ids.len() == 12)
@@ -310,6 +317,31 @@ mod tests {
                 (info.weights.iter().sum::<f32>() - 1.0).abs() < 1e-5
             }));
         }
+    }
+
+    #[test]
+    fn thigh_loops_descend_directly_from_the_existing_torso_rim() {
+        let recipe = Recipe::default();
+        let mut mesh = MeshBuilder::default();
+        let rim = mesh.loop_vertices((0..32).map(|column| {
+            let angle = TAU * column as f32 / 32.0;
+            Vec3::new(angle.sin() * 0.159, 0.78, angle.cos() * 0.122)
+        }));
+        let crotch = mesh.vertex(Vec3::ZERO);
+        let old_count = mesh.vertices.len();
+        let lower = append(&mut mesh, &rim, crotch, &recipe).unwrap();
+        assert_eq!(mesh.vertices.len() - old_count, 146);
+        for rings in lower.leg_rings {
+            for adjacent in rings.windows(2) {
+                for (&higher, &lower) in adjacent[0].iter().zip(&adjacent[1]) {
+                    assert!(
+                        mesh.vertices[lower as usize].y < mesh.vertices[higher as usize].y,
+                        "Thigh ring folded upwards instead of descending toward the knee"
+                    );
+                }
+            }
+        }
+        assert!(mesh.vertices[crotch as usize].y < 0.70);
     }
 
     #[test]

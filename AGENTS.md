@@ -32,3 +32,5 @@
 - Keep hip and knee joint indices 10–13 after the 10 existing upper-body joints. Pelvis and thigh skin weights derive from the procedural patches. Preserve existing shoulder indices 0–9 and their controls.
 - For this milestone, upper legs terminate at knees; knee caps are temporary. Do not claim full lower legs, gait-ready skinning or hip pose correction.
 - Every build control added to the schema must genuinely alter geometry or rest joint positions; test bounds and topology invariance.
+
+- Do not reinstate a separate outer pelvis skirt/flare. The pelvis grid must use the torso's existing bottom 32 vertices and bend its interior into the crotch, with first thigh rings interpolated from actual socket boundaries. Keep direct mesh connection and no extra perimeter ring.

@@ -17,7 +17,7 @@ The current output is intentionally **not a complete human**. It consists of a t
 
 **35 functional build sliders** are available across nine anatomical groups: Proportions, Physique, Neck, Torso & back, Chest & pectorals, Shoulders & deltoids, Upper arms, Pelvis, and Upper legs. The editor provides Player/Advanced filtering, per-group resets, global reset and parameter tooltips. All supported values deform the current surface; future head, forearm and lower-body parameters remain hidden and cannot be set to non-neutral values.
 
-The shoulder continues to use intermediate **transition and deltoid-insertion loops**. The connected pelvic split and upper thighs bring the neutral study to **758 vertices, 688 quads and 1,464 render triangles** (including temporary boundary caps). Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
+The shoulder continues to use intermediate **transition and deltoid-insertion loops**. The connected pelvic split and upper thighs bring the neutral study to **726 vertices, 656 quads and 1,400 render triangles** (including temporary boundary caps). Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
 
 The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Clavicles now pivot from their medial/sternal ends. Shoulder attachment weights vary continuously around the axilla and across nearby torso columns, while the deltoid correction preserves transverse radius relative to the posed upper-arm axis. The sternum and opposite arm remain stationary when only one side moves.
 
@@ -58,7 +58,7 @@ See [Upper-body morphology controls](docs/UPPER_BODY_CONTROLS.md) for the full 2
 
 ## Pelvis and upper-leg milestone
 
-The bottom of the torso no longer has a closing cap. It transitions into a pelvic skirt and a constrained 9×9 quad grid with **two 12-vertex thigh openings**. Each thigh is sewn directly onto its opening with four longitudinal rings, ending at a temporary knee cap. There are no intersecting cylinder shells or remeshing operations.
+The bottom of the torso no longer has a closing cap or an extra flared skirt. It transitions **directly** into a 9×9 quad grid whose interior curves downward into the crotch, with **two 12-vertex thigh openings**. Each thigh begins from its own existing opening, gradually transforms into elliptical cross-sections, and extends down to a temporary knee cap. There are no intersecting primitive shells, detached components or remeshing operations.
 
 Six existing parameters are activated: hip width, pelvis tilt, glute volume, thigh girth, stance width and provisional upper-leg length. Bone chains now include hip and knee landmarks on each side. See [the pelvis and upper-leg implementation](docs/PELVIS_UPPER_LEGS.md) for details.
 
