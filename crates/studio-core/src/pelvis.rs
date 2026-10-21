@@ -322,11 +322,25 @@ fn fit_pelvis(
         let centre = (1.0 - p.x.abs() / hip_x).clamp(0.0, 1.0);
         let lower = (1.0 - (p.y - dimensions.y(0.665)).abs()
             / (0.14 * dimensions.scale)).clamp(0.0, 1.0);
+        // Pubic and proximal-adductor mass should read as a softly rounded
+        // anterior volume, not a flat triangular crotch panel. The shallow
+        // bilateral inguinal depressions frame that volume without creating
+        // a separate mesh or introducing a hard groin crease.
+        let inguinal = (1.0
+            - (p.x.abs() - 0.065 * dimensions.scale).abs()
+                / (0.058 * dimensions.scale))
+            .clamp(0.0, 1.0);
+        let pubic = 0.028 * anterior * centre.powi(2) * lower;
+        let inguinal_fold = 0.007 * anterior * inguinal * lower;
         mesh.vertices[id].z += dimensions.scale * (
-            -0.013 * (0.65 + 0.70 * dimensions.glute_volume)
+            -0.018 * (0.65 + 0.70 * dimensions.glute_volume)
                 * posterior * lateral_hip * lower
-            + 0.007 * anterior * centre.powi(2) * lower
+            + pubic - inguinal_fold
         );
+        // A small central descent rounds the transition to both medial
+        // thighs, while the fixed three boundary rings stay untouched.
+        mesh.vertices[id].y -= 0.011 * dimensions.scale
+            * anterior * centre.powi(2) * lower;
     }
     Ok(())
 }
@@ -706,6 +720,27 @@ mod tests {
         let right_inner = (0..THIGH_RING_COUNT)
             .map(|i| d.root(1.0, i).x).fold(f32::INFINITY, f32::min);
         assert!(right_inner - left_inner > 0.045);
+    }
+
+    #[test]
+    fn pelvis_interior_is_softly_contoured_without_moving_waist_or_hip_seams() {
+        let mut mesh = MeshBuilder::default();
+        let waist = mesh.loop_vertices((0..32).map(|i| {
+            let angle = TAU * i as f32 / 32.0;
+            Vec3::new(angle.sin() * 0.159, 0.78, angle.cos() * 0.122)
+        }));
+        let before = waist.iter()
+            .map(|&i| mesh.vertices[i as usize]).collect::<Vec<_>>();
+        let crotch = mesh.vertex(Vec3::ZERO);
+        let result = append(&mut mesh, &waist, crotch, &Recipe::default()).unwrap();
+        for (&id, &old) in waist.iter().zip(&before) {
+            assert_eq!(mesh.vertices[id as usize], old);
+        }
+        for rings in &result.leg_rings {
+            assert_eq!(rings.len(), 4);
+        }
+        let mesh = mesh.build().unwrap();
+        assert!(mesh.vertices.iter().all(|v| v.is_finite()));
     }
 
     #[test]
