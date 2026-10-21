@@ -166,6 +166,58 @@ pub fn pose_rotations(pose: PreviewPose) -> [Quat; 10] {
 
 /// Skin influences are assigned by the topology authoring stage rather than
 /// found by nearest-bone distances, particularly at the axillary junction.
+/// Shoulder-girdle influence falls smoothly across *both* the torso's
+/// angular columns and its vertical anatomical sections. Vertices on the
+/// shared arm-hole boundary are moved with the adjoining shoulder patch.
+fn torso_shoulder_weights(row: usize, column: usize, base: VertexInfluence) -> VertexInfluence {
+    let y = TORSO_SECTIONS[row].0;
+    let vertical = smoothstep(1.19, 1.30, y) * (1.0 - smoothstep(1.43, 1.53, y));
+    let right_distance = (column as i32 - 8).abs() as f32;
+    let left_distance = (column as i32 - 24).abs() as f32;
+    let distance = right_distance.min(left_distance);
+    let lateral = 1.0 - smoothstep(1.5, 5.5, distance);
+    let strength = vertical * lateral;
+    if strength <= 1.0e-5 || row <= 5 {
+        return base;
+    }
+    let clavicle = if right_distance < left_distance { 7 } else { 4 };
+    let shoulder = if right_distance < left_distance { 8 } else { 5 };
+    let clavicle_weight = 0.21 * strength;
+    let shoulder_weight = 0.06 * strength;
+    influence(
+        2, 1.0 - clavicle_weight - shoulder_weight,
+        clavicle, clavicle_weight,
+        shoulder, shoulder_weight,
+    )
+}
+
+/// Axillary vertices need more chest attachment, while the superior deltoid
+/// travels predominantly with the shoulder. Blend over each 16-vertex ring.
+fn anatomical_ring_weights(
+    band: usize,
+    baseline: &VertexInfluence,
+    up_component: f32,
+    front_component: f32,
+) -> VertexInfluence {
+    if band >= 3 {
+        return baseline.clone();
+    }
+    let inferior = (-up_component).clamp(0.0, 1.0);
+    let superior = up_component.clamp(0.0, 1.0);
+    let anterior = front_component.clamp(0.0, 1.0);
+    let axilla = inferior * (0.5 + 0.5 * anterior);
+    let attenuation = [0.65, 1.0, 0.35][band];
+    let wanted = (0.070 * axilla - 0.095 * superior) * attenuation;
+    let chest = baseline.weights[0];
+    let arm = baseline.weights[2];
+    let delta = wanted.clamp(-chest * 0.7, arm * 0.7);
+    influence(
+        baseline.joint_indices[0], chest + delta,
+        baseline.joint_indices[1], baseline.weights[1],
+        baseline.joint_indices[2], arm - delta,
+    )
+}
+
 fn influence(a: u16, wa: f32, b: u16, wb: f32, c: u16, wc: f32) -> VertexInfluence {
     VertexInfluence {
         joint_indices: [a, b, c, 0],
@@ -176,9 +228,9 @@ fn influence(a: u16, wa: f32, b: u16, wb: f32, c: u16, wc: f32) -> VertexInfluen
 pub struct ShoulderRing {
     pub vertices: Vec<u32>,
     pub centre: Vec3,
-    pub region_weights: VertexInfluence,
     pub strength: f32,
     pub side: f32,
+    pub axis: Vec3,
 }
 
 pub struct BuiltStudy {
@@ -270,7 +322,7 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
 
     // Tag each topology ring with authored joint influences.
     let torso_count = mesh.vertices.len();
-    let mut weight_regions: Vec<(Vec<u32>, VertexInfluence)> = Vec::new();
+    let mut weight_regions: Vec<(u32, VertexInfluence)> = Vec::new();
     let mut correction_regions = Vec::new();
     for (side, centre_column, clavicle, shoulder_joint) in [
         ( 1.0_f32, 8_usize, 7_u16, 8_u16),
@@ -314,20 +366,33 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         let cap_index = mesh.vertices.len() as u32;
         mesh.cap(&elbow_loop, elbow + axis * 0.004 * m.height, false)?;
 
-        for (indices, centre, weights, strength) in [
-            (transition, transition_centre, influence(2, 0.78, clavicle, 0.17, shoulder_joint, 0.05), 0.75),
-            (deltoid, deltoid_centre, influence(2, 0.28, clavicle, 0.36, shoulder_joint, 0.36), 1.0),
-            (insertion, insertion_centre, influence(2, 0.0, clavicle, 0.12, shoulder_joint, 0.88), 0.5),
-            (mid, shoulder.lerp(elbow, 0.55), influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0), 0.0),
-            (elbow_loop, elbow, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0), 0.0),
-        ] {
+        let up = Vec3::new(-axis.y * axis.x.signum(), axis.x.abs(), 0.0).normalize();
+        for (band, (indices, centre, base_weights, strength, radius_y, radius_z)) in [
+            (transition, transition_centre, influence(2, 0.78, clavicle, 0.17, shoulder_joint, 0.05),
+                0.75, 0.090, 0.078),
+            (deltoid, deltoid_centre, influence(2, 0.28, clavicle, 0.36, shoulder_joint, 0.36),
+                1.0, 0.079, 0.072),
+            (insertion, insertion_centre, influence(2, 0.0, clavicle, 0.12, shoulder_joint, 0.88),
+                0.5, 0.070, 0.063),
+            (mid, shoulder.lerp(elbow, 0.55),
+                influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0), 0.0, 0.062, 0.056),
+            (elbow_loop, elbow,
+                influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0), 0.0, 0.052, 0.050),
+        ].into_iter().enumerate() {
+            for &id in &indices {
+                let offset = mesh.vertices[id as usize] - centre;
+                let top = (offset.dot(up) / (radius_y * m.upper_arm_girth * m.height))
+                    .clamp(-1.0, 1.0);
+                let front = (offset.z / (radius_z * m.upper_arm_girth * m.height))
+                    .clamp(-1.0, 1.0);
+                let weights = anatomical_ring_weights(band, &base_weights, top, front);
+                weight_regions.push((id, weights));
+            }
             correction_regions.push(ShoulderRing {
-                vertices: indices.clone(), centre,
-                region_weights: weights.clone(), strength, side,
+                vertices: indices, centre, strength, side, axis,
             });
-            weight_regions.push((indices, weights));
         }
-        weight_regions.push((vec![cap_index], influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
+        weight_regions.push((cap_index, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
     }
     let surface = mesh.build()?;
     let mut weights = vec![influence(2, 1.0, 0, 0.0, 0, 0.0); surface.vertices.len()];
@@ -341,8 +406,9 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
         } else {
             influence(2, 1.0, 0, 0.0, 0, 0.0)
         };
-        for &id in ring {
-            weights[id as usize] = torso_weights.clone();
+        for (column, &id) in ring.iter().enumerate() {
+            weights[id as usize] =
+                torso_shoulder_weights(row, column, torso_weights.clone());
         }
     }
     // The torso end caps follow their nearest structural joints.
@@ -353,10 +419,8 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
             influence(3, 1.0, 0, 0.0, 0, 0.0)
         };
     }
-    for (ids, region_weights) in weight_regions {
-        for id in ids {
-            weights[id as usize] = region_weights.clone();
-        }
+    for (id, region_weights) in weight_regions {
+        weights[id as usize] = region_weights;
     }
     Ok(BuiltStudy { surface, weights, corrective_rings: correction_regions })
 
