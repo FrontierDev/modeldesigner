@@ -20,8 +20,6 @@ struct PelvisDimensions {
     thigh_girth: f32,
     leg_length: f32,
     stance_width: f32,
-    pelvis_tilt: f32,
-    glute_volume: f32,
     body_mass: f32,
 }
 impl From<&Recipe> for PelvisDimensions {
@@ -33,8 +31,6 @@ impl From<&Recipe> for PelvisDimensions {
             thigh_girth: recipe.morphology.thigh_girth,
             leg_length: recipe.leg_length,
             stance_width: recipe.morphology.stance_width,
-            pelvis_tilt: recipe.morphology.pelvis_tilt,
-            glute_volume: recipe.morphology.glute_volume,
             body_mass: recipe.body_mass,
         }
     }
