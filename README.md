@@ -4,9 +4,9 @@ A standalone, native Rust procedural model-authoring application for **Ninth Age
 
 ## First milestone
 
-- **Two versioned reference topologies:** legacy generator v1 remains unchanged; new generator v2 produces a more anatomical head, neck, shoulders, torso, hands and feet. Within each generator version, changing proportions **never remeshes or changes vertex indices**.
+- **Three versioned reference topologies:** v1 and v2 remain available without migration; new generator v3 replaces rounded pectoral/shoulder masses with a clavicle, pectoral, deltoid and axilla structure. Body proportions preserve topology within each generator version.
 - Thirty live build sliders: the original height, shoulder width, arm length, leg length, musculature and body mass controls, plus 24 region-specific morphology controls spanning torso, neck/head, arms/hands, pelvis and legs. Bounds, defaults and player-editability are defined centrally in `studio-core`.
-- A fixed, parented **19-joint humanoid A-pose skeleton**, updated to the current body proportions.
+- A parented humanoid A-pose skeleton: **21 joints in v3**, including left/right clavicles, while v1/v2 retain their original **19 joints**.
 - Deterministic per-vertex nearest-segment skin influence metadata (four weighted joint indices per vertex) for subsequent rigging experiments.
 - Smooth normal-shaded orbit/zoom/pan preview with optional wireframe/skeleton overlays, and a compact top-right model statistics panel showing geometry and rig counts. Three panels: model types and presets, preview, and character build.
 - Versioned JSON recipes, New/Open/Save/Save As, and OBJ geometry plus companion `.rig.json` export containing named bones, parents, positions, and per-vertex influences.
@@ -16,7 +16,7 @@ A standalone, native Rust procedural model-authoring application for **Ninth Age
 
 This is a **topology-preservation/authoring prototype, not a production retopology or skinned-animation system**. The canonical surface is *triangulated from an implicit field*; it is not a hand-crafted deformation-ready quad cage. The model is one indexed mesh, but joint edge flow and actual deformation/animation quality remain to be validated. Skinning influence metadata is preliminary; **OBJ does not encode a rig**, and exporting the companion JSON does not make an immediately playable Unity Humanoid asset. No textures, clothing, armour, animation, inverse kinematics or automatic LODs are included.
 
-Regional morphology deforms the same indexed reference mesh **within each generator version**, with structural offsets also applied to the skeleton's rest positions. Generator v1 recipes, including older recipes without a `morphology` object, remain readable and retain their original mesh. New recipes use generator v2 by default. The reference still comes from a triangulated implicit field rather than animation-ready retopology.
+Regional morphology deforms the same indexed reference mesh **within each generator version**, with structural offsets also applied to the skeleton's rest positions. Generator v1 and v2 recipes, including older recipes without a `morphology` object, remain readable and retain their original mesh/rig definitions. New recipes use generator v3 by default. The reference still comes from a triangulated implicit field rather than animation-ready retopology.
 
 Body geometry is deliberately kept in `studio-core`, independent of Unity and the UI. The next step should be replacing the canonical implicit reference mesh with a hand-reviewed quad topology and validating skin deformation under a shared humanoid animation suite, without changing recipe semantics.
 
@@ -52,3 +52,6 @@ cargo clippy --workspace --all-targets -- -D warnings
 - `crates/studio-app`: desktop UI, recipe lifecycle, preview and export dialogs.
 
 All mesh and rig outputs are generated from the same validated recipe as the preview.
+## Chest and shoulder revision
+
+See [v3 anatomy and rig compatibility](docs/HUMANOID_SHOULDER_V3.md) for the clavicle hierarchy, planar pectorals, tapered deltoids, reduced triangle budget and local validation instructions.
