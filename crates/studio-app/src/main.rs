@@ -4,7 +4,7 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke};
 use glam::Vec3;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
-use studio_core::{Model, Recipe, generate};
+use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, Recipe, generate};
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -163,11 +163,6 @@ fn preview(ui: &mut egui::Ui, model: &Model, camera: &mut Camera, wireframe: boo
             }
         }
     }
-    painter.text(rect.left_top() + egui::vec2(14.0, 12.0), egui::Align2::LEFT_TOP,
-        "LMB: orbit   RMB: pan   Wheel: zoom", egui::FontId::proportional(12.0), Color32::from_gray(155));
-    painter.text(rect.left_bottom() + egui::vec2(14.0, -14.0), egui::Align2::LEFT_BOTTOM,
-        format!("{} vertices  |  {} triangles  |  {} joints", model.vertices.len(), model.triangles.len(), model.joints.len()),
-        egui::FontId::monospace(12.0), Color32::from_gray(172));
 }
 
 struct StudioApp {
@@ -192,7 +187,7 @@ impl StudioApp {
         let model = generate(&recipe).ok();
         Self { saved: recipe.clone(), recipe_path: None,
             camera: Camera::framed(recipe.height), recipe, model,
-            wireframe: false, show_skeleton: true, notice: None }
+            wireframe: false, show_skeleton: false, notice: None }
     }
 
     fn dirty(&self) -> bool { self.recipe != self.saved }
@@ -281,63 +276,74 @@ impl StudioApp {
         });
     }
 
-    fn draw_library(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Body presets");
-        ui.label("Each preset uses the same canonical surface and 19-joint skeleton.");
-        ui.add_space(8.0);
-        if ui.button("Neutral humanoid").clicked() { self.set_recipe(Recipe::default()); }
-        if ui.button("Tall / broad").clicked() {
+    fn draw_models(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Models");
+        ui.separator();
+        // Model types will grow beyond humanoids; only the humanoid generator exists today.
+        ui.selectable_label(true, "Humanoid");
+
+        ui.add_space(16.0);
+        ui.label("Model name");
+        ui.text_edit_singleline(&mut self.recipe.name);
+
+        ui.add_space(16.0);
+        ui.heading("Presets");
+        ui.separator();
+        if ui.button("Default").clicked() { self.set_recipe(Recipe::default()); }
+        if ui.button("Tall / Broad").clicked() {
             self.set_recipe(Recipe { name: "Tall / Broad".into(), height: 1.99,
                 shoulder_width: 0.55, musculature: 0.76, body_mass: 0.55, ..Recipe::default() });
         }
-        if ui.button("Short / stocky").clicked() {
+        if ui.button("Short / Stocky").clicked() {
             self.set_recipe(Recipe { name: "Short / Stocky".into(), height: 1.58,
                 shoulder_width: 0.56, leg_length: 0.88, musculature: 0.62,
                 body_mass: 0.87, ..Recipe::default() });
         }
-        if ui.button("Lean / long-limbed").clicked() {
+        if ui.button("Lean / Long-limbed").clicked() {
             self.set_recipe(Recipe { name: "Lean / Long-limbed".into(), height: 1.89,
                 arm_length: 1.15, leg_length: 1.13, musculature: 0.23,
                 body_mass: 0.17, ..Recipe::default() });
         }
-        ui.add_space(18.0);
-        ui.separator();
-        ui.label("Milestone 1");
-        ui.small("Reference topology • editable morphology • skeletal metadata");
-        ui.add_space(8.0);
-        ui.small("Skin weights are experimental. The preview does not animate the character.");
     }
 
-    fn draw_inspector(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Humanoid parameters");
+    fn draw_build(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Build");
         ui.separator();
-        ui.label("Name");
-        let mut changed = ui.text_edit_singleline(&mut self.recipe.name).changed();
-        ui.add_space(10.0);
-        ui.label("Overall proportions");
-        changed |= slider(ui, "Height (m)", &mut self.recipe.height, 1.50..=2.10);
-        changed |= slider(ui, "Shoulders (m)", &mut self.recipe.shoulder_width, 0.34..=0.62);
-        changed |= slider(ui, "Arm length", &mut self.recipe.arm_length, 0.82..=1.18);
-        changed |= slider(ui, "Leg length", &mut self.recipe.leg_length, 0.82..=1.18);
-        ui.add_space(10.0);
-        ui.label("Body shape");
-        changed |= slider(ui, "Musculature", &mut self.recipe.musculature, 0.0..=1.0);
-        changed |= slider(ui, "Body mass", &mut self.recipe.body_mass, 0.0..=1.0);
+        // The same data-driven slider definitions can be consumed by the game client.
+        // They store the original recipe values, not the scaled display values.
+        ui.spacing_mut().slider_width = (ui.available_width() - 70.0).max(130.0);
+        let mut changed = false;
+        for (section, label) in [
+            (BuildSection::Proportions, "Proportions"),
+            (BuildSection::Physique, "Physique"),
+        ] {
+            ui.label(egui::RichText::new(label).strong());
+            ui.add_space(4.0);
+            for control in BUILD_CONTROLS.iter().copied().filter(|c| c.section == section) {
+                changed |= build_slider(ui, &mut self.recipe, control);
+            }
+            ui.add_space(14.0);
+        }
         if changed { self.regenerate(); }
-        ui.add_space(14.0);
-        ui.separator();
-        ui.label("Viewport overlays");
-        ui.checkbox(&mut self.wireframe, "Wireframe");
-        ui.checkbox(&mut self.show_skeleton, "Skeleton");
-        if ui.button("Reset camera").clicked() { self.camera = Camera::framed(self.recipe.height); }
-        ui.add_space(10.0);
-        ui.separator();
-        ui.small("Topology stays fixed across all parameter combinations. Surface edge flow and animation deformation are not yet production-validated.");
     }
 }
 
-fn slider(ui: &mut egui::Ui, label: &str, value: &mut f32, range: std::ops::RangeInclusive<f32>) -> bool {
-    ui.add(egui::Slider::new(value, range).text(label).fixed_decimals(2)).changed()
+/// Keep the editor controls aligned with the future in-game build sliders.
+fn build_slider(ui: &mut egui::Ui, recipe: &mut Recipe, control: BuildControl) -> bool {
+    ui.label(control.label);
+    let mut display_value = control.get(recipe) * control.display_scale;
+    let range = control.min * control.display_scale..=control.max * control.display_scale;
+    let changed = ui.add(
+        egui::Slider::new(&mut display_value, range)
+            .suffix(control.suffix)
+            .fixed_decimals(0)
+            .show_value(true)
+    ).changed();
+    if changed {
+        control.set(recipe, display_value / control.display_scale);
+    }
+    ui.add_space(8.0);
+    changed
 }
 
 /// Ensure an interrupted write never truncates the original recipe.
@@ -366,30 +372,48 @@ impl eframe::App for StudioApp {
                 if ui.button("Save As").clicked() { self.save_recipe(true); }
                 ui.separator();
                 if ui.button("Export OBJ + Rig").clicked() { self.export(); }
-                if self.dirty() { ui.label("• Unsaved changes"); }
+                if self.dirty() { ui.label("• Unsaved"); }
             });
             ui.add_space(5.0);
         });
-        egui::Panel::bottom("status").show(ui, |ui| {
-            ui.horizontal(|ui| {
-                if let Some((message, is_error)) = &self.notice {
-                    ui.colored_label(if *is_error { Color32::LIGHT_RED } else { Color32::LIGHT_GREEN }, message);
-                } else { ui.small("Y-up • Metres • Canonical topology v1 • No materials"); }
+
+        if let Some((message, is_error)) = &self.notice {
+            egui::Panel::bottom("status").exact_size(27.0).show(ui, |ui| {
+                ui.colored_label(
+                    if *is_error { Color32::LIGHT_RED } else { Color32::LIGHT_GREEN },
+                    message
+                );
             });
+        }
+
+        egui::Panel::left("models").exact_size(210.0).show(ui, |ui| {
+            ui.add_space(10.0);
+            egui::ScrollArea::vertical().show(ui, |ui| self.draw_models(ui));
         });
-        egui::Panel::left("presets").resizable(true).default_size(212.0)
-            .min_size(190.0).show(ui, |ui| { ui.add_space(10.0); self.draw_library(ui); });
-        egui::Panel::right("inspector").resizable(true).default_size(310.0)
-            .min_size(265.0).show(ui, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| { ui.add_space(10.0); self.draw_inspector(ui); });
-            });
+        egui::Panel::right("build").exact_size(300.0).show(ui, |ui| {
+            ui.add_space(10.0);
+            egui::ScrollArea::vertical().show(ui, |ui| self.draw_build(ui));
+        });
         egui::CentralPanel::default().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Preview");
+                ui.separator();
+                ui.checkbox(&mut self.wireframe, "Wireframe");
+                ui.checkbox(&mut self.show_skeleton, "Skeleton");
+                if ui.button("Reset view").clicked() {
+                    self.camera = Camera::framed(self.recipe.height);
+                }
+            });
+            ui.add_space(6.0);
             if let Some(model) = self.model.as_ref() {
                 preview(ui, model, &mut self.camera, self.wireframe, self.show_skeleton);
-            } else { ui.centered_and_justified(|ui| { ui.label("No valid mesh to preview"); }); }
+            } else {
+                ui.centered_and_justified(|ui| { ui.label("No valid mesh to preview"); });
+            }
         });
     }
 }
+
 #[cfg(test)]
 mod preview_tests {
     use super::*;
