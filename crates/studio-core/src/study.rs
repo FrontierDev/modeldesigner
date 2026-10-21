@@ -227,7 +227,6 @@ fn influence(a: u16, wa: f32, b: u16, wb: f32, c: u16, wc: f32) -> VertexInfluen
 
 pub struct ShoulderRing {
     pub vertices: Vec<u32>,
-    pub centre: Vec3,
     pub strength: f32,
     pub side: f32,
     pub axis: Vec3,
@@ -247,28 +246,45 @@ pub fn preserve_shoulder_volume(
     matrices: &[glam::Mat4],
     pose: PreviewPose,
 ) -> Result<(), String> {
-    use crate::skinning::skin_point;
     if posed_vertices.len() != study.surface.vertices.len() {
         return Err("Corrective surface length differs from neutral mesh".into());
     }
     for ring in &study.corrective_rings {
         if ring.strength == 0.0 { continue; }
         let arm = if ring.side < 0.0 { pose.left } else { pose.right };
-        let intensity = (arm.raise_deg / 70.0).max(arm.forward_deg / 55.0).clamp(0.0, 1.0);
+        let intensity = (arm.raise_deg / 70.0)
+            .max(arm.forward_deg / 55.0).clamp(0.0, 1.0);
         if intensity == 0.0 { continue; }
-        let posed_centre = skin_point(ring.centre, &ring.region_weights, matrices)?;
+
+        let shoulder = if ring.side < 0.0 { 5 } else { 8 };
+        let transform = matrices.get(shoulder)
+            .ok_or("Missing shoulder skinning transform")?;
+        let posed_axis = transform.transform_vector3(ring.axis).normalize();
+        if !posed_axis.is_finite() {
+            return Err("Non-finite shoulder axis in corrective".into());
+        }
+
+        let count = ring.vertices.len() as f32;
+        let neutral_centre = ring.vertices.iter()
+            .map(|&id| study.surface.vertices[id as usize]).sum::<Vec3>() / count;
+        let posed_centre = ring.vertices.iter()
+            .map(|&id| posed_vertices[id as usize]).sum::<Vec3>() / count;
         for &vertex in &ring.vertices {
             let index = vertex as usize;
-            let rest_radius = (study.surface.vertices[index] - ring.centre).length();
+            let neutral_offset = study.surface.vertices[index] - neutral_centre;
+            let neutral_radial = neutral_offset
+                - ring.axis * neutral_offset.dot(ring.axis);
+            let rest_radius = neutral_radial.length();
             let offset = posed_vertices[index] - posed_centre;
-            let current_radius = offset.length();
-            if current_radius < 1e-6 || !current_radius.is_finite() {
+            let radial = offset - posed_axis * offset.dot(posed_axis);
+            let radius = radial.length();
+            if radius < 1e-6 || !radius.is_finite() {
                 return Err("Collapsed shoulder loop during pose deformation".into());
             }
-            let target = rest_radius * 0.96;
-            let deficit = (target - current_radius).max(0.0);
-            let shift = deficit * ring.strength * intensity;
-            posed_vertices[index] += offset / current_radius * shift.min(0.012);
+            // Only repair contraction; never enlarge above the neutral radius.
+            let deficit = (rest_radius * 0.96 - radius).max(0.0);
+            let shift = (deficit * ring.strength * intensity).min(0.010);
+            posed_vertices[index] += radial / radius * shift;
         }
     }
     Ok(())
@@ -389,7 +405,7 @@ pub fn build(recipe: &Recipe) -> Result<BuiltStudy, String> {
                 weight_regions.push((id, weights));
             }
             correction_regions.push(ShoulderRing {
-                vertices: indices, centre, strength, side, axis,
+                vertices: indices, strength, side, axis,
             });
         }
         weight_regions.push((cap_index, influence(shoulder_joint, 1.0, 0, 0.0, 0, 0.0)));
