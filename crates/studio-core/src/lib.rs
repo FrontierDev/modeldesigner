@@ -208,7 +208,7 @@ pub fn generate_posed(recipe: &Recipe, pose: PreviewPose) -> Result<Model, Strin
         study::preserve_shoulder_volume(&study, &mut positions, &transforms.skin, pose)?;
         let neutral_vertices = study.surface.vertices.clone();
         study.surface.vertices = positions;
-        study::fair_posed_upper_shoulder(&mut study.surface, &neutral_vertices, recipe)?;
+        study::fair_posed_upper_shoulder(&mut study.surface, &neutral_vertices, recipe, pose)?;
         study.surface.validate_closed()?;
     }
     let normals = study.surface.normals();
@@ -521,7 +521,7 @@ mod tests {
     #[test]
     fn unimplemented_controls_fail_explicitly() {
         let mut recipe = Recipe::default();
-        recipe.musculature = 0.9;
+        recipe.leg_length = 1.10;
         assert!(recipe.validate().unwrap_err().contains("not implemented"));
     }
 

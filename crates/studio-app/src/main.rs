@@ -375,7 +375,7 @@ impl StudioApp {
         ui.heading("Models");
         ui.separator();
         // Model types will grow beyond humanoids; only the humanoid generator exists today.
-        ui.selectable_label(true, "Humanoid / upper-body study");
+        ui.label("Humanoid / upper-body study");
 
         ui.add_space(16.0);
         ui.label("Model name");

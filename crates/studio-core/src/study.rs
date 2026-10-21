@@ -13,8 +13,6 @@ const RING_SIDES: usize = 32;
 const ARM_HOLE_START_ROW: usize = 6;
 const ARM_HOLE_END_ROW: usize = 10;
 const ARM_HOLE_COLUMNS: usize = 4;
-#[cfg(test)]
-const SHOULDER_BLEND_RINGS: usize = 2;
 
 // y, half-width, half-depth. These are surface *landmarks*, not volume primitives.
 // Joint and patch positions are evaluated from the same normalized measurements.
@@ -424,7 +422,7 @@ fn upper_shoulder_mask(vertices: &[Vec3], m: Measurements) -> Vec<f32> {
         let y = 0.78 + (point.y / m.height - 0.78) / m.torso_length;
         let outer = ((lateral - 0.105) / 0.040).clamp(0.0, 1.0)
             * ((0.38 - lateral) / 0.040).clamp(0.0, 1.0);
-        let upper = ((y - 1.325) / 0.065).clamp(0.0, 1.0)
+        let upper = ((y - 1.275) / 0.080).clamp(0.0, 1.0)
             * ((1.52 - y) / 0.060).clamp(0.0, 1.0);
         weights.push(outer * upper);
     }
@@ -439,13 +437,21 @@ fn fair_upper_shoulder(mesh: &mut MeshBuilder, m: Measurements) -> Result<(), St
 /// Resolve shoulder creasing after bone deformation without touching the
 /// neutral reference or the lower axillary transition.
 pub fn fair_posed_upper_shoulder(
-    surface: &mut SurfaceMesh, neutral: &[Vec3], recipe: &Recipe
+    surface: &mut SurfaceMesh, neutral: &[Vec3], recipe: &Recipe, pose: PreviewPose
 ) -> Result<(), String> {
     if neutral.len() != surface.vertices.len() {
         return Err("Posed and neutral vertex counts differ".into());
     }
     let m = Measurements::from(recipe);
-    let mask = upper_shoulder_mask(neutral, m);
+    let mut mask = upper_shoulder_mask(neutral, m);
+    // Never smooth the unposed shoulder: the opposite limb and chest must
+    // remain bitwise unchanged during independent preview poses.
+    for (index, vertex) in neutral.iter().enumerate() {
+        let arm = if vertex.x < 0.0 { pose.left } else { pose.right };
+        if arm == ArmPose::default() {
+            mask[index] = 0.0;
+        }
+    }
     surface.relax_masked(&mask, 4, 0.20, 0.010 * m.height)
 }
 
