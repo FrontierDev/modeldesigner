@@ -5,7 +5,7 @@ use glam::Vec3;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
 use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, PreviewPose, Recipe, generate, generate_posed};
-use studio_core::anatomy::{AnatomyTarget, TargetSurface};
+use studio_core::anatomy::{AnatomyTarget, Landmark, TargetSurface};
 use studio_core::controls::build_schema_json;
 
 fn main() -> eframe::Result<()> {
@@ -27,6 +27,12 @@ struct Camera {
 impl Camera {
     fn framed(height: f32) -> Self {
         Self { yaw: 0.48, pitch: 0.12, distance: height * 1.45, target: Vec3::Y * (height * 0.57) }
+    }
+
+    fn for_anatomy(height: f32) -> Self {
+        let scale = height / 1.75;
+        Self { yaw: 0.38, pitch: 0.12, distance: 1.72 * scale,
+            target: Vec3::Y * (0.65 * scale) }
     }
 
     fn basis(&self) -> Basis {
@@ -139,6 +145,7 @@ fn shaded_vertex(normal: Vec3, light: Vec3) -> Color32 {
 fn preview(
     ui: &mut egui::Ui, model: &Model, recipe: &Recipe,
     camera: &mut Camera, wireframe: bool, skeleton: bool, anatomy_target: bool,
+    landmarks: &[Landmark],
 ) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -260,6 +267,13 @@ fn preview(
             }
         }
     }
+    for landmark in landmarks {
+        if let Some((p,_)) = project(landmark.position,&basis,rect) {
+            painter.circle_filled(p,3.2,Color32::from_rgb(230,175,90));
+            painter.text(p+egui::vec2(5.0,-5.0),egui::Align2::LEFT_BOTTOM,
+                landmark.name,egui::FontId::monospace(10.0),Color32::from_gray(230));
+        }
+    }
     draw_model_statistics(&painter, rect, model, recipe, anatomy_target);
 }
 
@@ -283,6 +297,8 @@ struct StudioApp {
     recipe_path: Option<PathBuf>,
     model: Option<Model>,
     anatomy_preview: Option<Model>,
+    anatomy_landmarks: Vec<Landmark>,
+    show_landmarks: bool,
     show_anatomy_target: bool,
     camera: Camera,
     wireframe: bool,
@@ -301,11 +317,20 @@ impl StudioApp {
         cc.egui_ctx.set_visuals(visuals);
         let recipe = Recipe::default();
         let model = generate(&recipe).ok();
+        let initial = AnatomyTarget::from_recipe(&recipe)
+            .and_then(|target| target.sample_preview().map(|surface| (target.landmarks, surface)));
+        let (anatomy_preview, anatomy_landmarks, notice) = match initial {
+            Ok((landmarks,surface)) =>
+                (Some(anatomy_preview_model(surface)),landmarks,None),
+            Err(error) => (None,Vec::new(),
+                Some((format!("Anatomical target failed: {error}"),true))),
+        };
         Self { saved: recipe.clone(), recipe_path: None,
-            camera: Camera::framed(recipe.height), recipe, model,
-            anatomy_preview: None, show_anatomy_target: false,
+            camera: Camera::for_anatomy(recipe.height), recipe, model,
+            anatomy_preview, anatomy_landmarks,
+            show_landmarks: false, show_anatomy_target: true,
             wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
-            show_advanced: false, notice: None }
+            show_advanced: false, notice }
     }
 
     fn dirty(&self) -> bool { self.recipe != self.saved }
@@ -323,7 +348,9 @@ impl StudioApp {
         self.recipe = recipe;
         self.saved = self.recipe.clone();
         self.recipe_path = None;
-        self.camera = Camera::framed(self.recipe.height);
+        self.camera = if self.show_anatomy_target {
+            Camera::for_anatomy(self.recipe.height)
+        } else { Camera::framed(self.recipe.height) };
         self.pose = PreviewPose::default();
         self.notice = None;
         self.regenerate();
@@ -332,14 +359,16 @@ impl StudioApp {
     fn regenerate(&mut self) {
         if self.show_anatomy_target {
             match AnatomyTarget::from_recipe(&self.recipe)
-                .and_then(|target| target.sample_preview())
+                .and_then(|target| target.sample_preview().map(|surface| (target.landmarks,surface)))
             {
-                Ok(surface) => {
+                Ok((landmarks,surface)) => {
+                    self.anatomy_landmarks = landmarks;
                     self.anatomy_preview = Some(anatomy_preview_model(surface));
                     self.notice = None;
                 }
                 Err(error) => {
                     self.anatomy_preview = None;
+                    self.anatomy_landmarks.clear();
                     self.notice = Some((format!("Anatomical target failed: {error}"), true));
                 }
             }
@@ -580,13 +609,23 @@ impl eframe::App for StudioApp {
                 ui.separator();
                 let changed = ui.selectable_value(&mut self.show_anatomy_target, false, "Topology").changed()
                     | ui.selectable_value(&mut self.show_anatomy_target, true, "Anatomy target").changed();
-                if changed { self.regenerate(); }
+                if changed {
+                    self.camera = if self.show_anatomy_target {
+                        Camera::for_anatomy(self.recipe.height)
+                    } else { Camera::framed(self.recipe.height) };
+                    self.regenerate();
+                }
                 ui.checkbox(&mut self.wireframe, "Wireframe");
+                if self.show_anatomy_target {
+                    ui.checkbox(&mut self.show_landmarks, "Landmarks");
+                }
                 if !self.show_anatomy_target {
                     ui.checkbox(&mut self.show_skeleton, "Skeleton");
                 }
                 if ui.button("Reset view").clicked() {
-                    self.camera = Camera::framed(self.recipe.height);
+                    self.camera = if self.show_anatomy_target {
+                        Camera::for_anatomy(self.recipe.height)
+                    } else { Camera::framed(self.recipe.height) };
                 }
             });
             if !self.show_anatomy_target {
@@ -630,7 +669,10 @@ impl eframe::App for StudioApp {
             if let Some(model) = selected {
                 preview(ui, model, &self.recipe, &mut self.camera, self.wireframe,
                     self.show_skeleton && !self.show_anatomy_target,
-                    self.show_anatomy_target);
+                    self.show_anatomy_target,
+                    if self.show_anatomy_target && self.show_landmarks {
+                        &self.anatomy_landmarks
+                    } else { &[] });
             } else {
                 ui.centered_and_justified(|ui| { ui.label("No valid surface to preview"); });
             }

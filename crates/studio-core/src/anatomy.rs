@@ -80,6 +80,8 @@ impl AnatomyTarget {
         let y_shift = 0.025 * (m.pelvis_tilt - 0.5);
         let knee_y = 0.53 - 0.13 * recipe.leg_length;
         let waist_y = 0.87 + 0.07 * (m.torso_length - 1.0);
+        let abdomen_y = 0.856 + 0.055 * (m.torso_length - 1.0);
+        let stance_displacement = 0.022 * (m.stance_width - 1.0);
 
         let mut landmarks = vec![
             Landmark { name: "waist", position: Vec3::new(0.0, waist_y, 0.0) * s },
@@ -89,7 +91,7 @@ impl AnatomyTarget {
         let mut volumes = vec![
             tissue("pelvic_core", s, Vec3::new(0.0, 0.775 + y_shift, 0.0),
                 Vec3::new(0.176 * hip_width, 0.176, 0.130)),
-            tissue("lower_abdomen", s, Vec3::new(0.0, 0.856, 0.026),
+            tissue("lower_abdomen", s, Vec3::new(0.0, abdomen_y, 0.026),
                 Vec3::new(0.163 * hip_width, 0.144, 0.125 + 0.018 * mass)),
             tissue("pubic_adductor_bridge", s, Vec3::new(0.0, 0.667 + y_shift, 0.051),
                 Vec3::new(0.083, 0.073, 0.079)),
@@ -97,9 +99,10 @@ impl AnatomyTarget {
 
         for side in [-1.0_f32, 1.0] {
             let hip = Vec3::new(side * hip_x, 0.750 + y_shift, 0.0) * s;
+            let thigh_x = leg_x + stance_displacement;
             let trochanter = Vec3::new(side * (hip_x + 0.032), 0.705, -0.005) * s;
             let knee = Vec3::new(
-                side * (leg_x + 0.030 * (m.stance_width - 1.0)),
+                side * (leg_x + 0.040 * (m.stance_width - 1.0)),
                 knee_y, 0.0,
             ) * s;
             landmarks.extend([
@@ -125,18 +128,18 @@ impl AnatomyTarget {
                     s, Vec3::new(side * (hip_x - 0.003), 0.709, -0.067),
                     Vec3::new(0.100 + 0.010 * mass, 0.123, 0.102 + 0.039 * glute)),
                 tissue(if side < 0.0 { "left_thigh_core" } else { "right_thigh_core" },
-                    s, Vec3::new(side * leg_x, 0.528 + y_shift, -0.003),
+                    s, Vec3::new(side * thigh_x, 0.528 + y_shift, -0.003),
                     Vec3::new(thigh_rx, 0.248 * recipe.leg_length, thigh_rz)),
                 tissue(if side < 0.0 { "left_quadriceps" } else { "right_quadriceps" },
-                    s, Vec3::new(side * (leg_x + 0.003), 0.534, 0.046),
+                    s, Vec3::new(side * (thigh_x + 0.003), 0.534, 0.046),
                     Vec3::new(0.079 * girth, 0.204 * recipe.leg_length,
                         0.071 * girth * (1.0 + 0.08 * muscle))),
                 tissue(if side < 0.0 { "left_hamstrings" } else { "right_hamstrings" },
-                    s, Vec3::new(side * (leg_x + 0.005), 0.536, -0.049),
+                    s, Vec3::new(side * (thigh_x + 0.005), 0.536, -0.049),
                     Vec3::new(0.077 * girth, 0.206 * recipe.leg_length,
                         0.070 * girth * (1.0 + 0.08 * muscle))),
                 tissue(if side < 0.0 { "left_adductors" } else { "right_adductors" },
-                    s, Vec3::new(side * (leg_x - 0.026), 0.615, 0.009),
+                    s, Vec3::new(side * (thigh_x - 0.026), 0.615, 0.009),
                     Vec3::new(0.057 * girth, 0.139, 0.073 * girth)),
             ]);
         }
