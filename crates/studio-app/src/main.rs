@@ -5,6 +5,7 @@ use glam::Vec3;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
 use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, Recipe, generate};
+use studio_core::controls::build_schema_json;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -277,6 +278,21 @@ impl StudioApp {
         });
     }
 
+    fn export_build_schema(&mut self) {
+        let Some(mut path) = FileDialog::new()
+            .add_filter("Build schema", &["json"])
+            .set_file_name("humanoid-build-schema.json")
+            .save_file()
+        else { return; };
+        if path.extension().is_none() { path.set_extension("json"); }
+        let result = build_schema_json()
+            .and_then(|json| write_atomic(&path, &json));
+        self.notice = Some(match result {
+            Ok(()) => (format!("Build schema exported to {}", path.display()), false),
+            Err(error) => (format!("Build schema export failed: {error}"), true),
+        });
+    }
+
     fn draw_models(&mut self, ui: &mut egui::Ui) {
         ui.heading("Models");
         ui.separator();
@@ -318,6 +334,7 @@ impl StudioApp {
 
         let slider_width = (ui.available_width() - 70.0).max(130.0);
         ui.spacing_mut().slider_width = slider_width;
+        let show_advanced = self.show_advanced;
         let mut changed = false;
         for (section, label) in [
             (BuildSection::Proportions, "Proportions"),
@@ -328,7 +345,7 @@ impl StudioApp {
             (BuildSection::HeadNeck, "Head & neck"),
         ] {
             if !BUILD_CONTROLS.iter().any(|control| {
-                control.section == section && (self.show_advanced || control.player_editable)
+                control.section == section && (show_advanced || control.player_editable)
             }) {
                 continue;
             }
@@ -337,7 +354,7 @@ impl StudioApp {
                 .show(ui, |ui| {
                     ui.add_space(4.0);
                     for control in BUILD_CONTROLS.iter().copied().filter(|control| {
-                        control.section == section && (self.show_advanced || control.player_editable)
+                        control.section == section && (show_advanced || control.player_editable)
                     }) {
                         changed |= build_slider(ui, &mut self.recipe, control);
                     }
@@ -392,6 +409,7 @@ impl eframe::App for StudioApp {
                 if ui.button("Save As").clicked() { self.save_recipe(true); }
                 ui.separator();
                 if ui.button("Export OBJ + Rig").clicked() { self.export(); }
+                if ui.button("Export Build Schema").clicked() { self.export_build_schema(); }
                 if self.dirty() { ui.label("• Unsaved"); }
             });
             ui.add_space(5.0);
