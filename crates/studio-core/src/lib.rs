@@ -47,6 +47,76 @@ impl Default for Recipe {
     }
 }
 
+
+/** A stable identifier for a character-build slider. */
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildParameter {
+    Height,
+    ShoulderWidth,
+    ArmLength,
+    LegLength,
+    Musculature,
+    BodyMass,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuildSection {
+    Proportions,
+    Physique,
+}
+
+/// One source of truth for authoring and future in-game build sliders.
+/// Values stored in recipes remain in metres or unitless ratios; only UI display is scaled.
+#[derive(Clone, Copy, Debug)]
+pub struct BuildControl {
+    pub parameter: BuildParameter,
+    pub section: BuildSection,
+    pub label: &'static str,
+    pub min: f32,
+    pub max: f32,
+    pub display_scale: f32,
+    pub suffix: &'static str,
+}
+
+impl BuildControl {
+    pub fn get(self, recipe: &Recipe) -> f32 {
+        match self.parameter {
+            BuildParameter::Height => recipe.height,
+            BuildParameter::ShoulderWidth => recipe.shoulder_width,
+            BuildParameter::ArmLength => recipe.arm_length,
+            BuildParameter::LegLength => recipe.leg_length,
+            BuildParameter::Musculature => recipe.musculature,
+            BuildParameter::BodyMass => recipe.body_mass,
+        }
+    }
+
+    pub fn set(self, recipe: &mut Recipe, value: f32) {
+        match self.parameter {
+            BuildParameter::Height => recipe.height = value,
+            BuildParameter::ShoulderWidth => recipe.shoulder_width = value,
+            BuildParameter::ArmLength => recipe.arm_length = value,
+            BuildParameter::LegLength => recipe.leg_length = value,
+            BuildParameter::Musculature => recipe.musculature = value,
+            BuildParameter::BodyMass => recipe.body_mass = value,
+        }
+    }
+}
+
+pub const BUILD_CONTROLS: [BuildControl; 6] = [
+    BuildControl { parameter: BuildParameter::Height, section: BuildSection::Proportions,
+        label: "Height", min: 1.50, max: 2.10, display_scale: 100.0, suffix: " cm" },
+    BuildControl { parameter: BuildParameter::ShoulderWidth, section: BuildSection::Proportions,
+        label: "Shoulder width", min: 0.34, max: 0.62, display_scale: 100.0, suffix: " cm" },
+    BuildControl { parameter: BuildParameter::ArmLength, section: BuildSection::Proportions,
+        label: "Arm length", min: 0.82, max: 1.18, display_scale: 100.0, suffix: "%" },
+    BuildControl { parameter: BuildParameter::LegLength, section: BuildSection::Proportions,
+        label: "Leg length", min: 0.82, max: 1.18, display_scale: 100.0, suffix: "%" },
+    BuildControl { parameter: BuildParameter::Musculature, section: BuildSection::Physique,
+        label: "Musculature", min: 0.0, max: 1.0, display_scale: 100.0, suffix: "%" },
+    BuildControl { parameter: BuildParameter::BodyMass, section: BuildSection::Physique,
+        label: "Body mass", min: 0.0, max: 1.0, display_scale: 100.0, suffix: "%" },
+];
+
 impl Recipe {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != SCHEMA_VERSION || self.generator_version != GENERATOR_VERSION {
@@ -55,17 +125,13 @@ impl Recipe {
         if self.name.trim().is_empty() || self.name.len() > 120 {
             return Err("Name must contain 1–120 characters".into());
         }
-        let params = [
-            ("Height", self.height, 1.50, 2.10),
-            ("Shoulder width", self.shoulder_width, 0.34, 0.62),
-            ("Arm length", self.arm_length, 0.82, 1.18),
-            ("Leg length", self.leg_length, 0.82, 1.18),
-            ("Musculature", self.musculature, 0.0, 1.0),
-            ("Body mass", self.body_mass, 0.0, 1.0),
-        ];
-        for (label, value, min, max) in params {
-            if !value.is_finite() || !(min..=max).contains(&value) {
-                return Err(format!("{label} must be in the range {min}–{max}"));
+        for control in BUILD_CONTROLS {
+            let value = control.get(self);
+            if !value.is_finite() || !(control.min..=control.max).contains(&value) {
+                return Err(format!(
+                    "{} must be in the range {}–{}",
+                    control.label, control.min, control.max
+                ));
             }
         }
         Ok(())
@@ -385,6 +451,29 @@ fn build_reference() -> Canonical {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+
+    #[test]
+    fn build_controls_match_recipe_validation_and_are_reversible() {
+        let default = Recipe::default();
+        assert_eq!(BUILD_CONTROLS.len(), 6);
+        for (index, control) in BUILD_CONTROLS.iter().copied().enumerate() {
+            assert!(control.min < control.max);
+            assert!(control.display_scale > 0.0);
+            assert!((control.min..=control.max).contains(&control.get(&default)));
+            assert!(!control.label.is_empty());
+            assert!(!control.suffix.is_empty());
+            assert!(BUILD_CONTROLS[..index].iter().all(|other| other.parameter != control.parameter));
+
+            let mut edited = default.clone();
+            control.set(&mut edited, control.max);
+            edited.validate().unwrap();
+            assert_eq!(control.get(&edited), control.max);
+
+            control.set(&mut edited, control.max + 1.0);
+            assert!(edited.validate().is_err());
+        }
+    }
 
     #[test]
     fn generator_is_deterministic() {
