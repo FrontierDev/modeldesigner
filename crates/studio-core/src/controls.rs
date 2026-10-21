@@ -34,6 +34,19 @@ pub enum BuildParameter {
     FootLength,
     FootWidth,
     StanceWidth,
+    RibcageHeight,
+    WaistDepth,
+    LatSpread,
+    UpperBackFullness,
+    PectoralFullness,
+    SternumDefinition,
+    ShoulderForward,
+    DeltoidVolume,
+    DeltoidRoundness,
+    BicepsVolume,
+    TricepsVolume,
+    ElbowWidth,
+    ArmTaper,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BuildSection {
@@ -41,6 +54,9 @@ pub enum BuildSection {
     Physique,
     HeadNeck,
     Torso,
+    Chest,
+    Shoulders,
+    Neck,
     Arms,
     Legs,
 }
@@ -67,13 +83,32 @@ impl BuildControl {
             BuildParameter::Height
             | BuildParameter::ShoulderWidth
             | BuildParameter::ArmLength
+            | BuildParameter::Musculature
+            | BuildParameter::BodyMass
             | BuildParameter::TorsoLength
+            | BuildParameter::NeckLength
+            | BuildParameter::NeckWidth
             | BuildParameter::ShoulderSlope
             | BuildParameter::ChestWidth
             | BuildParameter::ChestDepth
             | BuildParameter::RibcageTaper
             | BuildParameter::WaistWidth
+            | BuildParameter::AbdomenFullness
+            | BuildParameter::BackCurvature
             | BuildParameter::UpperArmGirth
+            | BuildParameter::RibcageHeight
+            | BuildParameter::WaistDepth
+            | BuildParameter::LatSpread
+            | BuildParameter::UpperBackFullness
+            | BuildParameter::PectoralFullness
+            | BuildParameter::SternumDefinition
+            | BuildParameter::ShoulderForward
+            | BuildParameter::DeltoidVolume
+            | BuildParameter::DeltoidRoundness
+            | BuildParameter::BicepsVolume
+            | BuildParameter::TricepsVolume
+            | BuildParameter::ElbowWidth
+            | BuildParameter::ArmTaper
         )
     }
 
@@ -109,6 +144,19 @@ impl BuildControl {
             BuildParameter::FootLength => recipe.morphology.foot_length,
             BuildParameter::FootWidth => recipe.morphology.foot_width,
             BuildParameter::StanceWidth => recipe.morphology.stance_width,
+            BuildParameter::RibcageHeight => recipe.morphology.ribcage_height,
+            BuildParameter::WaistDepth => recipe.morphology.waist_depth,
+            BuildParameter::LatSpread => recipe.morphology.lat_spread,
+            BuildParameter::UpperBackFullness => recipe.morphology.upper_back_fullness,
+            BuildParameter::PectoralFullness => recipe.morphology.pectoral_fullness,
+            BuildParameter::SternumDefinition => recipe.morphology.sternum_definition,
+            BuildParameter::ShoulderForward => recipe.morphology.shoulder_forward,
+            BuildParameter::DeltoidVolume => recipe.morphology.deltoid_volume,
+            BuildParameter::DeltoidRoundness => recipe.morphology.deltoid_roundness,
+            BuildParameter::BicepsVolume => recipe.morphology.biceps_volume,
+            BuildParameter::TricepsVolume => recipe.morphology.triceps_volume,
+            BuildParameter::ElbowWidth => recipe.morphology.elbow_width,
+            BuildParameter::ArmTaper => recipe.morphology.arm_taper,
         }
     }
     pub fn set(self, recipe: &mut Recipe, value: f32) {
@@ -143,6 +191,19 @@ impl BuildControl {
             BuildParameter::FootLength => recipe.morphology.foot_length = value,
             BuildParameter::FootWidth => recipe.morphology.foot_width = value,
             BuildParameter::StanceWidth => recipe.morphology.stance_width = value,
+            BuildParameter::RibcageHeight => recipe.morphology.ribcage_height = value,
+            BuildParameter::WaistDepth => recipe.morphology.waist_depth = value,
+            BuildParameter::LatSpread => recipe.morphology.lat_spread = value,
+            BuildParameter::UpperBackFullness => recipe.morphology.upper_back_fullness = value,
+            BuildParameter::PectoralFullness => recipe.morphology.pectoral_fullness = value,
+            BuildParameter::SternumDefinition => recipe.morphology.sternum_definition = value,
+            BuildParameter::ShoulderForward => recipe.morphology.shoulder_forward = value,
+            BuildParameter::DeltoidVolume => recipe.morphology.deltoid_volume = value,
+            BuildParameter::DeltoidRoundness => recipe.morphology.deltoid_roundness = value,
+            BuildParameter::BicepsVolume => recipe.morphology.biceps_volume = value,
+            BuildParameter::TricepsVolume => recipe.morphology.triceps_volume = value,
+            BuildParameter::ElbowWidth => recipe.morphology.elbow_width = value,
+            BuildParameter::ArmTaper => recipe.morphology.arm_taper = value,
         }
     }
 }
@@ -152,6 +213,9 @@ impl BuildSection {
             Self::Proportions => "proportions",
             Self::Physique => "physique",
             Self::Torso => "torso",
+            Self::Chest => "chest",
+            Self::Shoulders => "shoulders",
+            Self::Neck => "neck",
             Self::Arms => "arms",
             Self::Legs => "legs",
             Self::HeadNeck => "head_neck",
@@ -183,7 +247,7 @@ pub fn build_schema_json() -> Result<String, String> {
     })).map_err(|error| error.to_string())
 }
 
-pub const BUILD_CONTROLS: [BuildControl; 30] = [
+pub const BUILD_CONTROLS: [BuildControl; 43] = [
     BuildControl {
         parameter: BuildParameter::Height, section: BuildSection::Proportions,
         id: "height", label: "Height",
@@ -233,31 +297,31 @@ pub const BUILD_CONTROLS: [BuildControl; 30] = [
         display_scale: 100.0, suffix: "%", player_editable: true
     },
     BuildControl {
-        parameter: BuildParameter::NeckLength, section: BuildSection::HeadNeck,
+        parameter: BuildParameter::NeckLength, section: BuildSection::Neck,
         id: "neck_length", label: "Neck length",
         min: 0.85, max: 1.15, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: false
     },
     BuildControl {
-        parameter: BuildParameter::NeckWidth, section: BuildSection::HeadNeck,
+        parameter: BuildParameter::NeckWidth, section: BuildSection::Neck,
         id: "neck_width", label: "Neck width",
         min: 0.75, max: 1.3, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: false
     },
     BuildControl {
-        parameter: BuildParameter::ShoulderSlope, section: BuildSection::Torso,
+        parameter: BuildParameter::ShoulderSlope, section: BuildSection::Shoulders,
         id: "shoulder_slope", label: "Shoulder slope",
         min: 0.0, max: 1.0, default: 0.5,
         display_scale: 100.0, suffix: "%", player_editable: true
     },
     BuildControl {
-        parameter: BuildParameter::ChestWidth, section: BuildSection::Torso,
+        parameter: BuildParameter::ChestWidth, section: BuildSection::Chest,
         id: "chest_width", label: "Chest width",
         min: 0.8, max: 1.25, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: true
     },
     BuildControl {
-        parameter: BuildParameter::ChestDepth, section: BuildSection::Torso,
+        parameter: BuildParameter::ChestDepth, section: BuildSection::Chest,
         id: "chest_depth", label: "Chest depth",
         min: 0.75, max: 1.3, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: true
@@ -361,6 +425,84 @@ pub const BUILD_CONTROLS: [BuildControl; 30] = [
     BuildControl {
         parameter: BuildParameter::StanceWidth, section: BuildSection::Legs,
         id: "stance_width", label: "Stance width",
+        min: 0.8, max: 1.2, default: 1.0,
+        display_scale: 100.0, suffix: "%", player_editable: false
+    },
+    BuildControl {
+        parameter: BuildParameter::RibcageHeight, section: BuildSection::Torso,
+        id: "ribcage_height", label: "Ribcage height",
+        min: 0.85, max: 1.15, default: 1.0,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::WaistDepth, section: BuildSection::Torso,
+        id: "waist_depth", label: "Waist depth",
+        min: 0.75, max: 1.3, default: 1.0,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::LatSpread, section: BuildSection::Torso,
+        id: "lat_spread", label: "Latissimus spread",
+        min: 0.75, max: 1.3, default: 1.0,
+        display_scale: 100.0, suffix: "%", player_editable: false
+    },
+    BuildControl {
+        parameter: BuildParameter::UpperBackFullness, section: BuildSection::Torso,
+        id: "upper_back_fullness", label: "Upper back fullness",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: false
+    },
+    BuildControl {
+        parameter: BuildParameter::PectoralFullness, section: BuildSection::Chest,
+        id: "pectoral_fullness", label: "Pectoral fullness",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::SternumDefinition, section: BuildSection::Chest,
+        id: "sternum_definition", label: "Sternum definition",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: false
+    },
+    BuildControl {
+        parameter: BuildParameter::ShoulderForward, section: BuildSection::Shoulders,
+        id: "shoulder_forward", label: "Shoulder forward position",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: false
+    },
+    BuildControl {
+        parameter: BuildParameter::DeltoidVolume, section: BuildSection::Shoulders,
+        id: "deltoid_volume", label: "Deltoid volume",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::DeltoidRoundness, section: BuildSection::Shoulders,
+        id: "deltoid_roundness", label: "Deltoid roundness",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: false
+    },
+    BuildControl {
+        parameter: BuildParameter::BicepsVolume, section: BuildSection::Arms,
+        id: "biceps_volume", label: "Biceps volume",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::TricepsVolume, section: BuildSection::Arms,
+        id: "triceps_volume", label: "Triceps volume",
+        min: 0.0, max: 1.0, default: 0.5,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::ElbowWidth, section: BuildSection::Arms,
+        id: "elbow_width", label: "Elbow width",
+        min: 0.75, max: 1.25, default: 1.0,
+        display_scale: 100.0, suffix: "%", player_editable: true
+    },
+    BuildControl {
+        parameter: BuildParameter::ArmTaper, section: BuildSection::Arms,
+        id: "arm_taper", label: "Upper-arm taper",
         min: 0.8, max: 1.2, default: 1.0,
         display_scale: 100.0, suffix: "%", player_editable: false
     },

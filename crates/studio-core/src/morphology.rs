@@ -30,6 +30,19 @@ pub struct Morphology {
     pub foot_length: f32,
     pub foot_width: f32,
     pub stance_width: f32,
+    pub ribcage_height: f32,
+    pub waist_depth: f32,
+    pub lat_spread: f32,
+    pub upper_back_fullness: f32,
+    pub pectoral_fullness: f32,
+    pub sternum_definition: f32,
+    pub shoulder_forward: f32,
+    pub deltoid_volume: f32,
+    pub deltoid_roundness: f32,
+    pub biceps_volume: f32,
+    pub triceps_volume: f32,
+    pub elbow_width: f32,
+    pub arm_taper: f32,
 }
 impl Default for Morphology {
     fn default() -> Self {
@@ -58,6 +71,19 @@ impl Default for Morphology {
             foot_length: 1.0,
             foot_width: 1.0,
             stance_width: 1.0,
+            ribcage_height: 1.0,
+            waist_depth: 1.0,
+            lat_spread: 1.0,
+            upper_back_fullness: 0.5,
+            pectoral_fullness: 0.5,
+            sternum_definition: 0.5,
+            shoulder_forward: 0.5,
+            deltoid_volume: 0.5,
+            deltoid_roundness: 0.5,
+            biceps_volume: 0.5,
+            triceps_volume: 0.5,
+            elbow_width: 1.0,
+            arm_taper: 1.0,
         }
     }
 }
