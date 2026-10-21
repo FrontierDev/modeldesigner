@@ -87,9 +87,22 @@ impl MeshBuilder {
     }
 
     pub fn quad(&mut self, a: u32, b: u32, c: u32, d: u32) {
+        self.quad_with_diagonal(a, b, c, d, false);
+    }
+
+    /// Select a fixed rendering diagonal without changing the authored quad.
+    /// The choice must depend on patch topology, not live slider values.
+    pub fn quad_with_diagonal(
+        &mut self, a: u32, b: u32, c: u32, d: u32, flip: bool
+    ) {
         self.quads.push([a, b, c, d]);
-        self.triangles.push([a, b, c]);
-        self.triangles.push([a, c, d]);
+        if flip {
+            self.triangles.push([a, b, d]);
+            self.triangles.push([b, c, d]);
+        } else {
+            self.triangles.push([a, b, c]);
+            self.triangles.push([a, c, d]);
+        }
     }
 
     pub fn triangle(&mut self, a: u32, b: u32, c: u32) {
@@ -211,6 +224,25 @@ mod tests {
     fn rejects_unmatched_stitch_loops() {
         let mut builder = MeshBuilder::default();
         assert!(builder.stitch(&[0, 1, 2], &[3, 4]).is_err());
+    }
+
+    #[test]
+    fn fixed_quad_diagonal_preserves_quad_and_face_winding() {
+        let mut m = MeshBuilder::default();
+        for point in [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ] { m.vertex(point); }
+        m.quad_with_diagonal(0, 1, 2, 3, true);
+        assert_eq!(m.quads, vec![[0, 1, 2, 3]]);
+        assert_eq!(m.triangles, vec![[0, 1, 3], [1, 2, 3]]);
+        for [a,b,c] in m.triangles {
+            let n = (m.vertices[b as usize] - m.vertices[a as usize])
+                .cross(m.vertices[c as usize] - m.vertices[a as usize]);
+            assert!(n.z > 0.0);
+        }
     }
 
     #[test]

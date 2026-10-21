@@ -16,6 +16,23 @@ const THIGH_RING_COUNT: usize = 12;
 const UNUSED: u32 = u32::MAX;
 const FAIRING_PASSES: usize = 180;
 
+// Each hole is a 2×4 rectangular patch, so equal angular increments per
+// vertex twist the socket when connected to that patch. Map the actual
+// perimeter coordinates to a circular cross-section instead. Both sides
+// use the same local coordinates: grid reflection reverses the ring indices.
+const THIGH_SOCKET_COORDS: [(f32, f32); THIGH_RING_COUNT] = [
+    (-1.0, -1.0), (0.0, -1.0), (1.0, -1.0),
+    (1.0, -0.5), (1.0, 0.0), (1.0, 0.5),
+    (1.0, 1.0), (0.0, 1.0), (-1.0, 1.0),
+    (-1.0, 0.5), (-1.0, 0.0), (-1.0, -0.5),
+];
+
+fn socket_direction(index: usize) -> (f32, f32) {
+    let (u, v) = THIGH_SOCKET_COORDS[index];
+    let distance = (u * u + v * v).sqrt();
+    (u / distance, v / distance)
+}
+
 #[derive(Clone, Copy)]
 struct Dimensions {
     scale: f32,
@@ -70,9 +87,7 @@ impl Dimensions {
     // *not* a horizontal ring: lateral greater-trochanter contours climb
     // towards the hips while the medial edges descend into the crotch.
     fn root(self, side: f32, index: usize) -> Vec3 {
-        let phi = -3.0 * PI / 4.0 + TAU * index as f32 / THIGH_RING_COUNT as f32;
-        let cos = phi.cos();
-        let sin = phi.sin();
+        let (cos, sin) = socket_direction(index);
         let centre_x = side * 0.100 * self.hip_width * self.scale;
         // Seat the greater-trochanter contour just outside the waist, not
         // a pronounced lateral hip shelf. Keep a safe medial crotch gap.
@@ -110,9 +125,7 @@ impl Dimensions {
         knee: Vec3,
         fraction: f32,
     ) -> Vec3 {
-        let phi = -3.0 * PI / 4.0 + TAU * index as f32 / THIGH_RING_COUNT as f32;
-        let sin = phi.sin();
-        let cos = phi.cos();
+        let (cos, sin) = socket_direction(index);
         let smooth = fraction * fraction * (3.0 - 2.0 * fraction);
         let target = Vec3::new(
             knee.x + cos * 0.052 * self.thigh_girth * self.scale,
@@ -351,11 +364,18 @@ pub fn append(
             if is_hole_cell(i, j) {
                 continue;
             }
-            mesh.quad(
+            // The two diagonal corners have three vertices on the waist
+            // circle. Their default diagonal creates a horizontal triangle
+            // adjacent to a steeply sloping pelvic triangle. Choose the
+            // other fixed diagonal to keep the surface normals coherent.
+            let flip = (j == 0 && i == GRID - 1)
+                || (j == GRID - 1 && i == 0);
+            mesh.quad_with_diagonal(
                 grid[j][i],
                 grid[j][i + 1],
                 grid[j + 1][i + 1],
                 grid[j + 1][i],
+                flip,
             );
         }
     }
@@ -409,6 +429,59 @@ pub fn append(
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn paired_thigh_socket_rims_are_exact_mirrors() {
+        for girth in [0.7, 1.0, 1.4] {
+            for width in [0.8, 1.0, 1.25] {
+                let mut recipe = Recipe::default();
+                recipe.morphology.thigh_girth = girth;
+                recipe.morphology.hip_width = width;
+                let dims = Dimensions::from(&recipe);
+                for k in 0..THIGH_RING_COUNT {
+                    // The reflected grid position is index (2-k) modulo 12.
+                    let reflected = (THIGH_RING_COUNT + 2 - k) % THIGH_RING_COUNT;
+                    let l = dims.root(-1.0, k);
+                    let r = dims.root(1.0, reflected);
+                    assert!((l.x + r.x).abs() < 1.0e-6,
+                        "Thigh-root X mismatch at girth={girth}, k={k}");
+                    assert!((l.y - r.y).abs() < 1.0e-6);
+                    assert!((l.z - r.z).abs() < 1.0e-6);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn waist_to_pelvis_corner_quads_use_stable_alternative_diagonals() {
+        let mut builder = MeshBuilder::default();
+        let waist = builder.loop_vertices((0..32).map(|i| {
+            let theta = TAU * i as f32 / 32.0;
+            Vec3::new(theta.sin() * 0.159, 0.78, theta.cos() * 0.122)
+        }));
+        let upper = builder.loop_vertices((0..32).map(|i| {
+            let theta = TAU * i as f32 / 32.0;
+            Vec3::new(theta.sin() * 0.151, 0.86, theta.cos() * 0.115)
+        }));
+        builder.stitch(&waist, &upper).unwrap();
+        let crotch = builder.vertex(Vec3::ZERO);
+        builder.cap(&upper, Vec3::new(0.0, 0.86, 0.0), false).unwrap();
+        append(&mut builder, &waist, crotch, &Recipe::default()).unwrap();
+        // First 32 quads connect waist to a mock torso ring. The two
+        // special pelvis quads are at indices 39 and 72.
+        for index in [39_usize, 72_usize] {
+            let [a, b, c, d] = builder.quads[index];
+            let triangles = &builder.triangles[2 * index..2 * index + 2];
+            assert_eq!(triangles, &[[a, b, d], [b, c, d]]);
+            let va = builder.vertices[a as usize];
+            let vb = builder.vertices[b as usize];
+            let vc = builder.vertices[c as usize];
+            let vd = builder.vertices[d as usize];
+            let n1 = (vb - va).cross(vd - va).normalize();
+            let n2 = (vc - vb).cross(vd - vb).normalize();
+            assert!(n1.dot(n2) > 0.75);
+        }
+    }
 
     #[test]
     fn anatomical_roots_slope_toward_the_crotch() {
