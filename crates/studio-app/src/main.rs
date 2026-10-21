@@ -214,7 +214,7 @@ impl StudioApp {
         match generate(&self.recipe) {
             Ok(model) => {
                 self.model = Some(model);
-                if self.notice.as_ref().is_some_and(|(_, error)| *error) { self.notice = None; }
+                self.notice = None;
             }
             Err(error) => {
                 self.model = None;
