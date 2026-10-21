@@ -527,7 +527,7 @@ mod tests {
             let n2 = (vc - vb).cross(vd - vb).normalize();
             assert!(n1.dot(n2) > 0.75, "Corner crease at girth={girth}");
         }
-         }
+        }
     }
 
     #[test]
