@@ -15,6 +15,9 @@ const GRID: usize = 8;
 const THIGH_RING_COUNT: usize = 12;
 const UNUSED: u32 = u32::MAX;
 const FAIRING_PASSES: usize = 180;
+// Per-side midline clearance, in metres for a reference-height humanoid.
+// The two legs need room for the inner-thigh contour when girth is maximal.
+const MIN_MEDIAL_HALF_GAP: f32 = 0.025;
 
 // Each hole is a 2×4 rectangular patch, so equal angular increments per
 // vertex twist the socket when connected to that patch. Map the actual
@@ -93,7 +96,7 @@ impl Dimensions {
         // a pronounced lateral hip shelf. Keep a safe medial crotch gap.
         let radius_x = (0.074 * self.thigh_girth
             * (1.0 + 0.10 * (self.body_mass - 0.5)) * self.scale)
-            .min(centre_x.abs() * 0.87);
+            .min(centre_x.abs() - MIN_MEDIAL_HALF_GAP * self.scale);
         let radius_z = 0.106 * self.thigh_girth
             * (1.0 + 0.12 * (self.body_mass - 0.5))
             * self.scale;
@@ -127,8 +130,10 @@ impl Dimensions {
     ) -> Vec3 {
         let (cos, sin) = socket_direction(index);
         let smooth = fraction * fraction * (3.0 - 2.0 * fraction);
+        let knee_radius = (0.052 * self.thigh_girth * self.scale)
+            .min(knee.x.abs() - MIN_MEDIAL_HALF_GAP * self.scale);
         let target = Vec3::new(
-            knee.x + cos * 0.052 * self.thigh_girth * self.scale,
+            knee.x + cos * knee_radius,
             knee.y,
             sin * 0.064 * self.thigh_girth * self.scale - 0.010 * self.scale,
         );
@@ -429,6 +434,37 @@ pub fn append(
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn supported_girth_stance_and_hip_extremes_keep_thighs_separate() {
+        for width in [0.8, 1.0, 1.25] {
+            for girth in [0.7, 1.0, 1.4] {
+                for stance in [0.8, 1.0, 1.2] {
+                    let mut recipe = Recipe::default();
+                    recipe.morphology.hip_width = width;
+                    recipe.morphology.thigh_girth = girth;
+                    recipe.morphology.stance_width = stance;
+                    let d = Dimensions::from(&recipe);
+                    for fraction in [0.0, 0.18, 0.42, 0.70, 1.0] {
+                        let mut left_inner = f32::NEG_INFINITY;
+                        let mut right_inner = f32::INFINITY;
+                        for index in 0..THIGH_RING_COUNT {
+                            let left = d.thigh_point(-1.0, index,
+                                d.root(-1.0, index), d.knee(-1.0), fraction);
+                            let right = d.thigh_point(1.0, index,
+                                d.root(1.0, index), d.knee(1.0), fraction);
+                            left_inner = left_inner.max(left.x);
+                            right_inner = right_inner.min(right.x);
+                        }
+                        assert!(
+                            right_inner - left_inner > 0.030 * d.scale,
+                            "Thigh overlap or unsafe crotch gap at hip={width},                              girth={girth}, stance={stance}, fraction={fraction}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn paired_thigh_socket_rims_are_exact_mirrors() {
