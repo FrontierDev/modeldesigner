@@ -476,7 +476,7 @@ mod tests {
             // than incorrectly assuming triangle_index == 2 * quad_index.
             assert!(
                 builder.triangles.windows(2).any(|pair| {
-                    pair == [[a, b, d], [b, c, d]]
+                    pair[0] == [a, b, d] && pair[1] == [b, c, d]
                 }),
                 "Corner quad {index} did not retain its fixed diagonal"
             );
