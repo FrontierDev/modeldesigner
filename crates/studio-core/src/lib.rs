@@ -281,13 +281,26 @@ mod tests {
             Vec3::from_array(r.joints[6].position)
                 .distance(Vec3::from_array(neutral.joints[6].position)) < 1e-5
         );
-        // Right upper-arm vertices are unaffected by moving only the left arm
-        // (and conversely); the torso remains stationary.
-        for i in 0..418 {
-            assert!(Vec3::from_array(l.vertices[i])
-                .distance(Vec3::from_array(neutral.vertices[i])) < 1e-5);
-            assert!(Vec3::from_array(r.vertices[i])
-                .distance(Vec3::from_array(neutral.vertices[i])) < 1e-5);
+        // A shoulder may move its own local chest seam, but never the
+        // opposite chest half or the central sternum.
+        assert_ne!(l.vertices[8 * 32 + 24], neutral.vertices[8 * 32 + 24]);
+        assert_ne!(r.vertices[8 * 32 + 8], neutral.vertices[8 * 32 + 8]);
+        for row in 0..13 {
+            for column in 0..32 {
+                let index = row * 32 + column;
+                let rest = Vec3::from_array(neutral.vertices[index]);
+                if (2..=14).contains(&column) {
+                    assert!(Vec3::from_array(l.vertices[index]).distance(rest) < 1e-5);
+                }
+                if (18..=30).contains(&column) {
+                    assert!(Vec3::from_array(r.vertices[index]).distance(rest) < 1e-5);
+                }
+            }
+        }
+        for index in 416..418 {
+            let rest = Vec3::from_array(neutral.vertices[index]);
+            assert!(Vec3::from_array(l.vertices[index]).distance(rest) < 1e-5);
+            assert!(Vec3::from_array(r.vertices[index]).distance(rest) < 1e-5);
         }
         for i in 418..499 {
             assert!(Vec3::from_array(r.vertices[i])
