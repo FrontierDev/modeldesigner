@@ -7,22 +7,22 @@
 The upper-body generator `study.rs` now authors **neutral geometry only**, together with named region influences and clavicle/shoulder corrective-loop metadata. No generated ring is rotated during topology construction.
 
 **Bind influences** are based on the anatomical patch structure:
-- The sewn torso boundary remains attached to the chest.
+- The sewn torso boundary blends chest, clavicle and a small shoulder contribution over nearby torso rows and columns; only the active side moves.
 - The first deltoid-transition loop is dominated by the chest, with clavicle and small shoulder influences.
-- The deltoid loop blends chest, clavicle and shoulder.
+- The deltoid loop blends chest, clavicle and shoulder, with individual vertices weighted differently around its circumference: the upper deltoid follows the humerus more, while the anterior/inferior axilla stays attached to the chest longer.
 - The insertion loop is dominated by shoulder with a small clavicle contribution.
 - Distal upper-arm and elbow loops follow the shoulder bone.
 - Torso regions are assigned pelvis, spine and chest influences.
 
 ## Pose and corrections
 
-`PreviewPose` carries independent left/right `ArmPose` values for arm elevation (0–70°) and forward reach (0–55°). A small portion of each rotation is assigned to the clavicle; the remainder to the shoulder. The hierarchy propagates transforms to the elbow. A limited shoulder-volume correction restores some of the loop radius lost to LBS near the deltoid and axilla, with a capped maximum displacement. These are **not finished corrective blendshapes**.
+`PreviewPose` carries independent left/right `ArmPose` values for arm elevation (0–70°) and forward reach (0–55°). The clavicle pivots near the sternoclavicular attachment (rather than the lateral shoulder); approximately 18% of the preview rotation is assigned to the clavicle and the remainder to the shoulder. The hierarchy propagates transforms to the elbow. A bounded shoulder-volume correction restores lost cross-sectional radius perpendicular to the moving upper-arm axis, using each ring's skinned centroid; the maximum displacement is 10 mm. It does not modify the torso seam or expand an already-full ring. These are **not finished corrective blendshapes**.
 
 The neutral recipe and mesh are unchanged when dragging pose sliders. The preview mesh is evaluated from the original bind pose and recomputed normals every time. Neutral OBJ export and rig metadata include reference influences and per-joint inverse bind matrices.
 
 ## Validation
 
-Tests cover identity bind transforms, hierarchical child rotation, stable weights and indices, independent arm motion, stationary torso seams, neutral rig export and validation of pose ranges. An independent numerical check of sampled left/right/extreme rotations found no degenerate triangle areas in the tested configurations; real Rust unit tests and application rendering remain to be run locally.
+Tests cover identity bind transforms, hierarchical child rotation, stable weights and indices, independent arm motion, localized moving torso seams with a stationary sternum/opposite side, neutral rig export and validation of pose ranges. An independent numerical reproduction checked the neutral, left-only, right-only and combined 70° raise/55° forward configurations (580 vertices, 512 quads, 1,120 triangles), finding no degenerate triangles. At 60° raise/35° forward the active upper chest seam moved around 9 mm while the central chest remained stationary; real Rust unit tests and application rendering remain to be run locally.
 
 Run:
 

@@ -13,6 +13,8 @@
 - Before merging further anatomy, run cargo fmt/check/test/clippy and evaluate silhouette, edge flow and bone movement.
 - Preview wireframe shows quad boundaries, not internal render-only triangulation diagonals.
 - Keep interactive preview pose values separate from `Recipe`; exporting OBJ and rig data always uses the neutral reference mesh.
-- Upper-arm pose must retain the shared torso seam, mesh face indices, manifold closure and neutral skinning weights. Both arms are independently posed using hierarchical linear-blend skinning and inverse bind transforms.
+- Upper-arm pose must retain the shared torso seam connectivity, mesh face indices, manifold closure and neutral skinning weights. The local chest seam may deform, but the sternum and opposite side should not move. Both arms are independently posed using hierarchical linear-blend skinning and inverse bind transforms.
 - Store neutral, anatomical per-ring influence weights in the generator; do not regress to nearest-bone selection or re-author posed mesh geometry.
 - Apply bounded corrective deformations only after skeletal skinning; calculate preview normals from the deformed surface. Exports always use neutral bind-pose data.
+- Place clavicle pivots at the medial attachment near the sternum; maintain the shoulder as their child and distribute elevation through both joints.
+- Avoid abrupt uniform ring weights across the deltoid. Blend weights angularly around the upper-arm ring and smoothly across nearby torso sections. Correct transverse shoulder volume relative to the posed bone frame.

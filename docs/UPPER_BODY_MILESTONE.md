@@ -28,8 +28,8 @@ Prove that a human-like torso and upper arms can be **constructed procedurally f
 - A shallow anterior pectoral plane tapers toward the axilla; the medial sternum has a slight depression.
 - The wireframe viewport displays the authored quad boundaries, not internal preview triangle diagonals.
 - Non-persistent **independent left and right** shoulder controls: Raise 0–70°, Forward reach 0–55°. The mesh is now deformed with hierarchical **linear-blend skinning** driven by the 10-joint skeleton rather than manually rotating generated rings.
-- Skin weights are authored per torso and shoulder loop. Clavicles contribute to deltoid transition weights, while the sewn torso boundary is chest-bound.
-- Joint-world transforms, inverse bind matrices, linear-blend skinning, recomputed normals and bounded local shoulder-volume correction live in the core pipeline.
+- Skin weights are authored per torso and shoulder loop. Clavicles contribute to deltoid transition weights, while the sewn torso boundary has a smoothly localized clavicle/shoulder blend.
+- Joint-world transforms, inverse bind matrices, linear-blend skinning, recomputed normals and bounded bone-axis-relative local shoulder-volume correction live in the core pipeline. Clavicle rest pivots are now near the sternum, with angular deltoid/axillary weights and a soft chest seam.
 - The neutral rig and mesh, not the posed preview, are exported; inverse bind matrices are included in the rig JSON.
 - Rust tests check mesh closure, face-index determinism, bone count, pose geometry and reference influences.
 - An independent numerical simulation of the new hierarchical-skinning transforms and per-ring weights checked neutral, left-only, right-only and combined extreme poses. No degenerate triangles were detected in those sampled configurations. This is **not a substitute for Rust compilation or visual animation tests**.

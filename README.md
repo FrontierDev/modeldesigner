@@ -19,7 +19,7 @@ Ten working sliders: height, shoulder width, arm length, torso length, shoulder 
 
 The updated shoulder connection adds intermediate **transition and deltoid-insertion loops**, allowing the torso-to-upper-arm cross-section to change more gradually. The first study now contains **580 vertices, 512 quads and 1,120 render triangles** in its neutral configuration. Wireframe mode shows **actual quad edges**, not rendering-only triangulation diagonals.
 
-The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Local corrective displacement restores limited lost shoulder-loop radius during blended rotations.
+The preview now provides **independent left/right shoulder Raise (0–70°) and Forward (0–55°)** sliders. A shared `skinning.rs` engine evaluates hierarchical joint rotations using pose-world × inverse-bind matrices, and the anatomy generator supplies explicit torso/clavicle/shoulder skinning weights. Clavicles now pivot from their medial/sternal ends. Shoulder attachment weights vary continuously around the axilla and across nearby torso columns, while the deltoid correction preserves transverse radius relative to the posed upper-arm axis. The sternum and opposite arm remain stationary when only one side moves.
 
 **These are skeletal deformation tests, not a fully animation-ready character rig.** Recipe and OBJ/rig exports remain neutral, with inverse bind matrices and reference weights included in the rig metadata.
 
