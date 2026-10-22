@@ -41,6 +41,9 @@ pub struct FitReport {
     pub initial_mean_error: f32,
     pub mean_error: f32,
     pub maximum_error: f32,
+    /// Mean signed-field residual sampled at render-triangle centroids.
+    pub surface_mean_error: f32,
+    pub surface_maximum_error: f32,
     pub maximum_displacement: f32,
 }
 
@@ -113,6 +116,21 @@ fn safe_geometry(
         }
     }
     true
+}
+
+fn surface_errors(
+    points: &[Vec3], triangles: &[[u32; 3]], target: &AnatomyTarget
+) -> (f32, f32) {
+    let mut sum = 0.0;
+    let mut worst = 0.0_f32;
+    for &[a, b, c] in triangles {
+        let centre = (points[a as usize] + points[b as usize] +
+            points[c as usize]) / 3.0;
+        let error = target.field(centre).abs();
+        sum += error;
+        worst = worst.max(error);
+    }
+    (sum / triangles.len() as f32, worst)
 }
 
 fn errors(points: &[Vec3], target: &AnatomyTarget) -> (f32,f32) {
@@ -227,6 +245,8 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
     }
 
     let (mean_error,maximum_error) = errors(&positions,&target);
+    let (surface_mean_error, surface_maximum_error) =
+        surface_errors(&positions, &source.triangles, &target);
     let displacement = positions.iter().zip(&reference)
         .map(|(&a,&b)| a.distance(b)).fold(0.0_f32, f32::max);
     let surface = SurfaceMesh {
@@ -253,6 +273,8 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
             initial_mean_error,
             mean_error,
             maximum_error,
+            surface_mean_error,
+            surface_maximum_error,
             maximum_displacement: displacement,
         },
     })

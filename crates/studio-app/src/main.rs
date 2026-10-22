@@ -107,12 +107,20 @@ fn draw_model_statistics(
     painter.rect_filled(panel, 5.0, Color32::from_rgba_unmultiplied(28, 32, 38, 228));
     let entries = [
         ("MODEL", String::new()),
-        ("Study", if anatomy_target { "Anatomy target" } else { "Torso + thighs" }.to_owned()),
+        ("Study", if anatomy_target {
+            "Anatomy target".to_owned()
+        } else if model.joints.is_empty() {
+            "Auto quad cage".to_owned()
+        } else {
+            "Legacy topology".to_owned()
+        }),
         ("Height", format!("{:.2} m", recipe.height)),
         ("Vertices", model.vertices.len().to_string()),
         ("Quads", if anatomy_target { "Not fitted".to_owned() } else { model.quads.len().to_string() }),
         ("Triangles", model.triangles.len().to_string()),
-        ("Joints", if anatomy_target { "Not rigged".to_owned() } else { model.joints.len().to_string() }),
+        ("Joints", if model.joints.is_empty() {
+            "Not rigged".to_owned()
+        } else { model.joints.len().to_string() }),
     ];
     for (index, (label, value)) in entries.iter().enumerate() {
         let y = panel.top() + 11.0 + index as f32 * 21.0;
@@ -694,9 +702,10 @@ impl eframe::App for StudioApp {
                     ui.label("Surface fit");
                     if ui.add(egui::Slider::new(&mut self.fit_strength,0.0..=1.0)).changed() { self.regenerate(); }
                     if let Some(report) = &self.fit_report {
-                        ui.label(format!("Vertex error {:.1} → {:.1} mm | max {:.1} mm | {} passes",
+                        ui.label(format!("Vertex {:.1} → {:.1} mm | surface {:.1} mm (max {:.1}) | {} steps",
                             report.initial_mean_error * 1000.0, report.mean_error * 1000.0,
-                            report.maximum_error * 1000.0, report.iterations));
+                            report.surface_mean_error * 1000.0,
+                            report.surface_maximum_error * 1000.0, report.iterations));
                     }
                 });
                 ui.label("New neutral anatomical quads • fixed connectivity across sliders • unrigged preview");
