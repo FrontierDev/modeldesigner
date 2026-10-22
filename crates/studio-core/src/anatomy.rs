@@ -201,7 +201,8 @@ impl AnatomyTarget {
         distance
     }
 
-    fn normal(&self, p: Vec3) -> Vec3 {
+    /// Outward field gradient for constrained quad-cage projection.
+    pub fn outward_normal(&self, p: Vec3) -> Vec3 {
         let h = 0.0035 * self.scale;
         Vec3::new(
             self.field(p + Vec3::X * h) - self.field(p - Vec3::X * h),
@@ -287,7 +288,7 @@ impl AnatomyTarget {
                             let p = positions[a].lerp(positions[b], t);
                             let new_id = surface.vertices.len() as u32;
                             surface.vertices.push(p.to_array());
-                            surface.normals.push(self.normal(p).to_array());
+                            surface.normals.push(self.outward_normal(p).to_array());
                             cache.insert(key, new_id);
                             new_id
                         };
@@ -330,7 +331,7 @@ impl AnatomyTarget {
                                 continue;
                             }
                             let centre = (a+b+c)/3.0;
-                            if normal.dot(self.normal(centre)) < 0.0 {
+                            if normal.dot(self.outward_normal(centre)) < 0.0 {
                                 tri.swap(1,2);
                             }
                             surface.triangles.push(tri);
