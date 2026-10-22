@@ -336,6 +336,7 @@ fn anatomy_preview_model(surface: TargetSurface) -> Model {
         triangles: surface.triangles,
         quads: Vec::new(),
         caps: Vec::new(),
+        shoulder_guides: Vec::new(),
         joints: Vec::new(),
         influences: Vec::new(),
     }

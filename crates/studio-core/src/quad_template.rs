@@ -226,7 +226,7 @@ fn make_template() -> Result<NeutralTemplate, String> {
     let mut shoulder_report = refine_shoulders(&mut mesh, &neutral)?;
     // Replace an annular shoulder band with anatomical support loops before
     // vertex flow and well before any runtime morphology or rigging.
-    let ring_report = build_shoulder_rings(&mut mesh, &neutral)?;
+    let (ring_report, shoulder_guides) = build_shoulder_rings(&mut mesh, &neutral)?;
     shoulder_report.hotspot_cost_after = measured_hotspot_cost(&mesh, &neutral)?;
     // After rewiring, redistribute neutral vertex positions without further
     // topology changes. Everything is cached for the archetype.
@@ -237,6 +237,7 @@ fn make_template() -> Result<NeutralTemplate, String> {
         quads: mesh.quads,
         triangles: mesh.triangles,
         caps: mesh.caps,
+        shoulder_guides,
         joints: Vec::new(),
         influences: Vec::new(),
     };

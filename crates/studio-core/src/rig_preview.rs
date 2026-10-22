@@ -375,6 +375,7 @@ pub fn pose_fitted(
             quads: surface.quads,
             triangles: surface.triangles,
             caps: surface.caps,
+            shoulder_guides: fitted.shoulder_guides.clone(),
             joints: posed_joints,
             influences: skin_weights,
         },

@@ -393,6 +393,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
         quads: surface.quads,
         triangles: surface.triangles,
         caps: surface.caps,
+        shoulder_guides: source.shoulder_guides,
         joints: Vec::new(),
         influences: Vec::new(),
     };

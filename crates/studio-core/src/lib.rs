@@ -110,6 +110,9 @@ pub struct Model {
     /// Preview triangles include two triangles per quad and optional end caps.
     pub triangles: Vec<[u32; 3]>,
     pub caps: Vec<[u32; 3]>,
+    /// Neutral-topology shoulder ownership, [left, right] in [0, 1].
+    /// Remains indexed with the cage under fitting and diagnostic poses.
+    pub shoulder_guides: Vec<[f32; 2]>,
     pub joints: Vec<Joint>,
     pub influences: Vec<VertexInfluence>,
 }

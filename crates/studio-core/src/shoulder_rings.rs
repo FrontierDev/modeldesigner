@@ -296,24 +296,60 @@ fn bridge(mesh: &mut SurfaceMesh, outer: &[u32], inner: &[u32], axilla: Vec3) ->
 
 /// Remove vertices stranded by deleted automatic faces and rebuild render
 /// triangles from the welded quad surface. Indices are fixed from this point.
-fn compact(mesh: &mut SurfaceMesh) {
+fn compact(mesh: &mut SurfaceMesh, guides: &mut Vec<[f32; 2]>) {
+    assert_eq!(mesh.vertices.len(), guides.len());
     let mut remap = vec![u32::MAX; mesh.vertices.len()];
     let mut positions = Vec::new();
+    let mut preserved_guides = Vec::new();
     for quad in &mut mesh.quads {
         for id in quad {
             let old = *id as usize;
             if remap[old] == u32::MAX {
                 remap[old] = positions.len() as u32;
                 positions.push(mesh.vertices[old]);
+                preserved_guides.push(guides[old]);
             }
             *id = remap[old];
         }
     }
     mesh.vertices = positions;
+    *guides = preserved_guides;
     mesh.triangles.clear();
     for &[a, b, c, d] in &mesh.quads {
         mesh.triangles.extend([[a, b, c], [a, c, d]]);
     }
+}
+
+/// Cutting the shoulder annulus separates the retained arm surface from the
+/// retained trunk. Flood-fill the distal side before welding the new rings;
+/// spatial proximity alone cannot distinguish the two around the armpit.
+fn distal_vertices(
+    mesh: &SurfaceMesh, selected: &[bool], arm: &[u32], torso: &[u32],
+) -> Option<Vec<bool>> {
+    let mut neighbours = vec![Vec::new(); mesh.vertices.len()];
+    for (face, quad) in mesh.quads.iter().enumerate() {
+        if selected[face] { continue; }
+        for i in 0..4 {
+            let a = quad[i] as usize;
+            let b = quad[(i + 1) % 4] as usize;
+            neighbours[a].push(b);
+            neighbours[b].push(a);
+        }
+    }
+    let mut distal = vec![false; mesh.vertices.len()];
+    let mut stack = vec![arm[0] as usize];
+    distal[arm[0] as usize] = true;
+    while let Some(vertex) = stack.pop() {
+        for &next in &neighbours[vertex] {
+            if !distal[next] {
+                distal[next] = true;
+                stack.push(next);
+            }
+        }
+    }
+    (arm.iter().all(|&id| distal[id as usize])
+        && torso.iter().all(|&id| !distal[id as usize]))
+        .then_some(distal)
 }
 
 fn valid_new_quads(
@@ -358,8 +394,8 @@ struct PatchCounts {
 
 fn replace_band(
     source: &SurfaceMesh, selected: &[bool], mut loops: Vec<Vec<u32>>,
-    guide: Guide, target: &AnatomyTarget,
-) -> Option<(SurfaceMesh, PatchCounts)> {
+    guide: Guide, target: &AnatomyTarget, labels: &[[f32; 2]], side: usize,
+) -> Option<(SurfaceMesh, Vec<[f32; 2]>, PatchCounts)> {
     if loops.len() != 2 { return None; }
     loops.sort_by(|a, b| {
         let mean = |ring: &Vec<u32>| ring.iter()
@@ -386,6 +422,12 @@ fn replace_band(
     rotate_to_front(&mut torso, source, guide);
     rotate_to_front(&mut arm, source, guide);
 
+    let distal = distal_vertices(source, selected, &arm, &torso)?;
+    let mut retained_labels = labels.to_vec();
+    for (label, is_distal) in retained_labels.iter_mut().zip(distal) {
+        if is_distal { label[side] = 1.0; }
+    }
+
     let removed = selected.iter().filter(|&&v| v).count();
     let retained = SurfaceMesh {
         vertices: source.vertices.clone(),
@@ -401,14 +443,27 @@ fn replace_band(
     // one edge of mismatch can fold the patch even with valid boundary loops.
     for shift in [0, n - 1, 1, n - 2, 2] {
         let mut mesh = retained.clone();
+        let mut patch_labels = retained_labels.clone();
         let mut phased_arm = arm.clone();
         phased_arm.rotate_left(shift);
         // Torso interface -> deltoid cap -> underarm support -> upper-arm loop.
         // The interior rings are projected onto the same neutral anatomy field.
         let Some(deltoid) = support_ring(&mut mesh, &torso, &phased_arm, count, 0.32, target)
             else { continue; };
+        patch_labels.extend((0..deltoid.len()).map(|_| {
+            let mut label = [0.0; 2];
+            label[side] = 0.32;
+            label
+        }));
         let Some(axilla) = support_ring(&mut mesh, &torso, &phased_arm, count, 0.68, target)
             else { continue; };
+        patch_labels.extend((0..axilla.len()).map(|_| {
+            let mut label = [0.0; 2];
+            // The distal support ring is mostly upper arm, even at the
+            // axillary underside. This reduces shear into its arm boundary.
+            label[side] = 0.78;
+            label
+        }));
         let hotspot = guide.axilla;
         if bridge(&mut mesh, &torso, &deltoid, hotspot).is_none()
             || bridge(&mut mesh, &deltoid, &axilla, hotspot).is_none()
@@ -416,7 +471,7 @@ fn replace_band(
             || !valid_new_quads(&mesh, start, target)
         { continue; }
         let generated = mesh.quads.len() - start;
-        compact(&mut mesh);
+        compact(&mut mesh, &mut patch_labels);
         if mesh.validate_closed().is_err() { continue; }
         let mut seen = BTreeSet::new();
         let unique = mesh.quads.iter().all(|quad| {
@@ -428,14 +483,16 @@ fn replace_band(
             seen.insert(ids)
         });
         if unique {
-            return Some((mesh, PatchCounts { removed, generated, torso: m, arm: n }));
+            return Some((mesh, patch_labels,
+                PatchCounts { removed, generated, torso: m, arm: n }));
         }
     }
     None
 }
 
 fn one_side(
-    mesh: &mut SurfaceMesh, target: &AnatomyTarget, left: bool,
+    mesh: &mut SurfaceMesh, labels: &mut Vec<[f32; 2]>,
+    target: &AnatomyTarget, left: bool,
 ) -> Result<PatchCounts, String> {
     let guide = Guide::new(target, left)?;
     let (adjacent, uses) = adjacency(mesh)?;
@@ -452,10 +509,12 @@ fn one_side(
                 bands += 1;
                 let Some(loops) = boundary_loops(&selected, &uses) else { continue; };
                 if loops.len() == 2 { two_boundaries += 1; }
-                if let Some((candidate, counts)) =
-                    replace_band(mesh, &selected, loops, guide, target)
+                if let Some((candidate, candidate_labels, counts)) =
+                    replace_band(mesh, &selected, loops, guide, target,
+                        labels, if left { 0 } else { 1 })
                 {
                     *mesh = candidate;
+                    *labels = candidate_labels;
                     return Ok(counts);
                 }
             }
@@ -473,14 +532,18 @@ fn one_side(
 /// either patch fails. Posed and morphology-fitted meshes never call this.
 pub(crate) fn apply(
     mesh: &mut SurfaceMesh, target: &AnatomyTarget,
-) -> Result<RingPatchReport, String> {
+) -> Result<(RingPatchReport, Vec<[f32; 2]>), String> {
     let mut candidate = mesh.clone();
-    let left = one_side(&mut candidate, target, true)?;
+    let mut labels = vec![[0.0; 2]; candidate.vertices.len()];
+    let left = one_side(&mut candidate, &mut labels, target, true)?;
     candidate.validate_closed()?;
-    let right = one_side(&mut candidate, target, false)?;
+    let right = one_side(&mut candidate, &mut labels, target, false)?;
     candidate.validate_closed()?;
+    if labels.len() != candidate.vertices.len() {
+        return Err("Shoulder ownership lost alignment with cage vertices".into());
+    }
     *mesh = candidate;
-    Ok(RingPatchReport {
+    Ok((RingPatchReport {
         left_removed_quads: left.removed,
         right_removed_quads: right.removed,
         left_patch_quads: left.generated,
@@ -489,7 +552,7 @@ pub(crate) fn apply(
         right_torso_ring: right.torso,
         left_arm_ring: left.arm,
         right_arm_ring: right.arm,
-    })
+    }, labels))
 }
 
 #[cfg(test)]
@@ -539,5 +602,17 @@ mod tests {
         let report = crate::quad_template::neutral_shoulder_ring_report().unwrap();
         assert!(report.left_patch_quads > 0 && report.right_patch_quads > 0);
         assert_eq!(model.triangles.len(), 2 * model.quads.len());
+        assert_eq!(model.shoulder_guides.len(), model.vertices.len());
+        for side in 0..2 {
+            for value in [0.32, 0.78, 1.0] {
+                assert!(model.shoulder_guides.iter()
+                    .any(|guide| guide[side] == value),
+                    "Missing guided shoulder region {side} at {value}");
+            }
+        }
+        assert!(model.shoulder_guides.iter().all(|guide|
+            guide[0] >= 0.0 && guide[0] <= 1.0
+                && guide[1] >= 0.0 && guide[1] <= 1.0
+                && guide[0] * guide[1] == 0.0));
     }
 }
