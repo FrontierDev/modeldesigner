@@ -370,7 +370,7 @@ impl StudioApp {
         Self { saved: recipe.clone(), recipe_path: None,
             camera: Camera::for_anatomy(recipe.height), recipe, model,
             anatomy_preview, anatomy_landmarks,
-            fitted_cage: None, fit_report: None, fit_strength: 0.75,
+            fitted_cage: None, fit_report: None, fit_strength: 1.0,
             show_landmarks: false, show_poles: false, preview_kind: PreviewKind::Anatomy,
             wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
             show_advanced: false, notice }
@@ -731,10 +731,11 @@ impl eframe::App for StudioApp {
                     ui.label("Surface fit");
                     if ui.add(egui::Slider::new(&mut self.fit_strength,0.0..=1.0)).changed() { self.regenerate(); }
                     if let Some(report) = &self.fit_report {
-                        ui.label(format!("Vertex {:.1} → {:.1} mm | surface {:.1} mm (max {:.1}) | {} steps",
+                        ui.label(format!("Vertex {:.1} → {:.1} mm | surface {:.1} mm (max {:.1}) | {} passes | moved {}",
                             report.initial_mean_error * 1000.0, report.mean_error * 1000.0,
                             report.surface_mean_error * 1000.0,
-                            report.surface_maximum_error * 1000.0, report.iterations));
+                            report.surface_maximum_error * 1000.0, report.iterations,
+                            report.moved_vertices));
                     }
                 });
                 if let Some(report) = &self.fit_report {
@@ -746,7 +747,7 @@ impl eframe::App for StudioApp {
                         neutral.maximum_quad_aspect, neutral.minimum_corner_angle_degrees
                     ));
                 }
-                ui.label("Experimental neutral limb-flow optimization • fixed connectivity • no rig or export");
+                ui.label("Anatomical landmark morph + local shrink-wrap • fixed topology • not rigged");
             } else {
                 ui.label("Torso + pelvis + upper arms/thighs • anatomical surface target • not rigged");
             }
