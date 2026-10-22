@@ -6,6 +6,7 @@ use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
 use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, PreviewPose, Recipe, generate, generate_posed};
 use studio_core::anatomy::{AnatomyTarget, Landmark, TargetSurface};
+use studio_core::cage::{self, FitReport};
 use studio_core::controls::build_schema_json;
 
 fn main() -> eframe::Result<()> {
@@ -292,15 +293,21 @@ fn anatomy_preview_model(surface: TargetSurface) -> Model {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviewKind { Anatomy, FittedCage, Topology }
+
 struct StudioApp {
     recipe: Recipe,
     saved: Recipe,
     recipe_path: Option<PathBuf>,
     model: Option<Model>,
     anatomy_preview: Option<Model>,
+    fitted_cage: Option<Model>,
+    fit_report: Option<FitReport>,
+    fit_strength: f32,
     anatomy_landmarks: Vec<Landmark>,
     show_landmarks: bool,
-    show_anatomy_target: bool,
+    preview_kind: PreviewKind,
     camera: Camera,
     wireframe: bool,
     show_skeleton: bool,
@@ -329,7 +336,8 @@ impl StudioApp {
         Self { saved: recipe.clone(), recipe_path: None,
             camera: Camera::for_anatomy(recipe.height), recipe, model,
             anatomy_preview, anatomy_landmarks,
-            show_landmarks: false, show_anatomy_target: true,
+            fitted_cage: None, fit_report: None, fit_strength: 0.75,
+            show_landmarks: false, preview_kind: PreviewKind::Anatomy,
             wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
             show_advanced: false, notice }
     }
@@ -349,7 +357,7 @@ impl StudioApp {
         self.recipe = recipe;
         self.saved = self.recipe.clone();
         self.recipe_path = None;
-        self.camera = if self.show_anatomy_target {
+        self.camera = if self.preview_kind != PreviewKind::Topology {
             Camera::for_anatomy(self.recipe.height)
         } else { Camera::framed(self.recipe.height) };
         self.pose = PreviewPose::default();
@@ -358,31 +366,51 @@ impl StudioApp {
     }
 
     fn regenerate(&mut self) {
-        if self.show_anatomy_target {
-            match AnatomyTarget::from_recipe(&self.recipe)
-                .and_then(|target| target.sample_preview().map(|surface| (target.landmarks,surface)))
-            {
-                Ok((landmarks,surface)) => {
-                    self.anatomy_landmarks = landmarks;
-                    self.anatomy_preview = Some(anatomy_preview_model(surface));
-                    self.notice = None;
-                }
-                Err(error) => {
-                    self.anatomy_preview = None;
-                    self.anatomy_landmarks.clear();
-                    self.notice = Some((format!("Anatomical target failed: {error}"), true));
+        match self.preview_kind {
+            PreviewKind::Anatomy => {
+                match AnatomyTarget::from_recipe(&self.recipe)
+                    .and_then(|target| target.sample_preview()
+                        .map(|surface| (target.landmarks, surface)))
+                {
+                    Ok((landmarks,surface)) => {
+                        self.anatomy_landmarks = landmarks;
+                        self.anatomy_preview = Some(anatomy_preview_model(surface));
+                        self.notice = None;
+                    }
+                    Err(error) => {
+                        self.anatomy_preview = None;
+                        self.anatomy_landmarks.clear();
+                        self.notice = Some((format!("Anatomical target failed: {error}"), true));
+                    }
                 }
             }
-            return;
-        }
-        match generate_posed(&self.recipe, self.pose) {
-            Ok(model) => {
-                self.model = Some(model);
-                self.notice = None;
+            PreviewKind::FittedCage => {
+                match cage::fit(&self.recipe,self.fit_strength) {
+                    Ok(fit) => {
+                        self.fitted_cage = Some(fit.model);
+                        self.fit_report = Some(fit.report);
+                        self.anatomy_landmarks = AnatomyTarget::from_recipe(&self.recipe)
+                            .map(|target| target.landmarks).unwrap_or_default();
+                        self.notice = None;
+                    }
+                    Err(error) => {
+                        self.fitted_cage = None;
+                        self.fit_report = None;
+                        self.notice = Some((format!("Cage fitting failed: {error}"), true));
+                    }
+                }
             }
-            Err(error) => {
-                self.model = None;
-                self.notice = Some((format!("Generation failed: {error}"), true));
+            PreviewKind::Topology => {
+                match generate_posed(&self.recipe,self.pose) {
+                    Ok(model) => {
+                        self.model = Some(model);
+                        self.notice = None;
+                    }
+                    Err(error) => {
+                        self.model = None;
+                        self.notice = Some((format!("Generation failed: {error}"), true));
+                    }
+                }
             }
         }
     }
@@ -397,7 +425,7 @@ impl StudioApp {
                 self.recipe = recipe;
                 self.saved = self.recipe.clone();
                 self.recipe_path = Some(path);
-                self.camera = if self.show_anatomy_target {
+                self.camera = if self.preview_kind != PreviewKind::Topology {
                     Camera::for_anatomy(self.recipe.height)
                 } else { Camera::framed(self.recipe.height) };
                 self.pose = PreviewPose::default();
@@ -426,8 +454,8 @@ impl StudioApp {
     }
 
     fn export(&mut self) {
-        if self.show_anatomy_target {
-            self.notice = Some(("Anatomy target is an unrigged preview; switch to Topology to export".into(), true));
+        if self.preview_kind != PreviewKind::Topology {
+            self.notice = Some(("Anatomy and fitted-cage views are unrigged previews; switch to Topology to export".into(), true));
             return;
         }
         if self.model.is_none() {
@@ -610,28 +638,29 @@ impl eframe::App for StudioApp {
             ui.horizontal(|ui| {
                 ui.label("Preview");
                 ui.separator();
-                let changed = ui.selectable_value(&mut self.show_anatomy_target, false, "Topology").changed()
-                    | ui.selectable_value(&mut self.show_anatomy_target, true, "Anatomy target").changed();
+                let changed = ui.selectable_value(&mut self.preview_kind, PreviewKind::Anatomy, "Anatomy target").changed()
+                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::FittedCage, "Fitted cage").changed()
+                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::Topology, "Topology").changed();
                 if changed {
-                    self.camera = if self.show_anatomy_target {
+                    self.camera = if self.preview_kind != PreviewKind::Topology {
                         Camera::for_anatomy(self.recipe.height)
                     } else { Camera::framed(self.recipe.height) };
                     self.regenerate();
                 }
                 ui.checkbox(&mut self.wireframe, "Wireframe");
-                if self.show_anatomy_target {
+                if self.preview_kind != PreviewKind::Topology {
                     ui.checkbox(&mut self.show_landmarks, "Landmarks");
                 }
-                if !self.show_anatomy_target {
+                if self.preview_kind == PreviewKind::Topology {
                     ui.checkbox(&mut self.show_skeleton, "Skeleton");
                 }
                 if ui.button("Reset view").clicked() {
-                    self.camera = if self.show_anatomy_target {
+                    self.camera = if self.preview_kind != PreviewKind::Topology {
                         Camera::for_anatomy(self.recipe.height)
                     } else { Camera::framed(self.recipe.height) };
                 }
             });
-            if !self.show_anatomy_target {
+            if self.preview_kind == PreviewKind::Topology {
             let mut pose_changed = false;
             ui.horizontal(|ui| {
                 ui.label("Left arm");
@@ -660,20 +689,31 @@ impl eframe::App for StudioApp {
                 }
             });
             if pose_changed { self.regenerate(); }
+            } else if self.preview_kind == PreviewKind::FittedCage {
+                ui.horizontal(|ui| {
+                    ui.label("Surface fit");
+                    if ui.add(egui::Slider::new(&mut self.fit_strength,0.0..=1.0)).changed() { self.regenerate(); }
+                    if let Some(report) = &self.fit_report {
+                        ui.label(format!("Error {:.1} → {:.1} mm | max {:.1} mm | {} passes",
+                            report.initial_mean_error * 1000.0, report.mean_error * 1000.0,
+                            report.maximum_error * 1000.0, report.iterations));
+                    }
+                });
+                ui.label("Experimental quad cage • preserved connectivity • no skinning or export");
             } else {
                 ui.label("Torso + pelvis + upper arms/thighs • anatomical surface target • not rigged");
             }
             ui.add_space(6.0);
-            let selected = if self.show_anatomy_target {
-                self.anatomy_preview.as_ref()
-            } else {
-                self.model.as_ref()
+            let selected = match self.preview_kind {
+                PreviewKind::Anatomy => self.anatomy_preview.as_ref(),
+                PreviewKind::FittedCage => self.fitted_cage.as_ref(),
+                PreviewKind::Topology => self.model.as_ref(),
             };
             if let Some(model) = selected {
                 preview(ui, model, &self.recipe, &mut self.camera, self.wireframe,
-                    self.show_skeleton && !self.show_anatomy_target,
-                    self.show_anatomy_target,
-                    if self.show_anatomy_target && self.show_landmarks {
+                    self.show_skeleton && self.preview_kind == PreviewKind::Topology,
+                    self.preview_kind == PreviewKind::Anatomy,
+                    if self.preview_kind != PreviewKind::Topology && self.show_landmarks {
                         &self.anatomy_landmarks
                     } else { &[] });
             } else {
