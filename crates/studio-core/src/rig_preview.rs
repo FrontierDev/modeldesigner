@@ -454,6 +454,9 @@ mod tests {
         let target = AnatomyTarget::from_recipe(&recipe).unwrap();
         let shoulder = landmark(&target, "left_shoulder").unwrap();
         let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
+        let topology = crate::quad_template::neutral_shoulder_report().unwrap();
+        assert!(topology.left_deformation_rewires > 0
+            && topology.right_deformation_rewires > 0);
 
         // Deltoid-cap vertices close to, but distinctly above/outside, the
         // shoulder pivot must follow the joint. Checking only distal upper
@@ -479,8 +482,8 @@ mod tests {
             let preview = pose_fitted(&fitted, &recipe, pose).unwrap();
             assert_eq!(preview.report.collapsed_faces, 0);
             if angle <= 60.0 {
-                assert!(preview.report.inverted_faces <= 12
-                    && preview.report.strained_edges <= 32,
+                assert!(preview.report.inverted_faces <= 4
+                    && preview.report.strained_edges <= 22,
                     "Excessive shoulder defects at {angle}°: {} inverted, {} strained",
                     preview.report.inverted_faces, preview.report.strained_edges);
             }
@@ -505,6 +508,13 @@ mod tests {
                 "Deltoid did not advance with the raised shoulder at {angle}°");
             previous_displacement = mean_motion;
         }
+        let right = pose_fitted(&fitted, &recipe, DiagnosticPose {
+            right_arm: JointAngles { outward: 60.0, forward: 0.0 },
+            ..DiagnosticPose::default()
+        }).unwrap();
+        assert_eq!(right.report.collapsed_faces, 0);
+        assert!(right.report.inverted_faces <= 4 && right.report.strained_edges <= 22,
+            "Mirrored shoulder patch deforms poorly at 60°");
     }
 
     #[test]
