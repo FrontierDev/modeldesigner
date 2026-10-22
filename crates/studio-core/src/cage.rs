@@ -6,10 +6,12 @@
 //! Resulting geometry has no approved UVs, skinning or production rig.
 
 use crate::anatomy::AnatomyTarget;
+use crate::hip_rings::HipRingReport;
 use crate::mesh::SurfaceMesh;
 use crate::quad_flow::FlowReport;
 use crate::quad_template::{
     neutral_flow_report, neutral_shoulder_report, neutral_shoulder_ring_report,
+    neutral_hip_ring_report,
     neutral_template
 };
 use crate::shoulder_patch::ShoulderPatchReport;
@@ -59,6 +61,7 @@ pub struct FitReport {
     pub neutral_flow: FlowReport,
     pub shoulder_patch: ShoulderPatchReport,
     pub shoulder_rings: RingPatchReport,
+    pub hip_rings: HipRingReport,
 }
 
 #[derive(Clone, Debug)]
@@ -394,6 +397,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
         triangles: surface.triangles,
         caps: surface.caps,
         shoulder_guides: source.shoulder_guides,
+        hip_guides: source.hip_guides,
         joints: Vec::new(),
         influences: Vec::new(),
     };
@@ -412,6 +416,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
             neutral_flow: *neutral_flow_report()?,
             shoulder_patch: *neutral_shoulder_report()?,
             shoulder_rings: *neutral_shoulder_ring_report()?,
+            hip_rings: *neutral_hip_ring_report()?,
         },
     })
 }

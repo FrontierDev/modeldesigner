@@ -337,6 +337,7 @@ fn anatomy_preview_model(surface: TargetSurface) -> Model {
         quads: Vec::new(),
         caps: Vec::new(),
         shoulder_guides: Vec::new(),
+        hip_guides: Vec::new(),
         joints: Vec::new(),
         influences: Vec::new(),
     }
@@ -791,6 +792,14 @@ impl eframe::App for StudioApp {
                         rings.right_removed_quads, rings.right_patch_quads,
                         rings.left_torso_ring, rings.left_arm_ring,
                         rings.right_torso_ring, rings.right_arm_ring
+                    ));
+                    let hips = report.hip_rings;
+                    ui.label(format!(
+                        "Structured hip quads: L {} → {} / R {} → {} | pelvis/thigh rings L {}/{} R {}/{}",
+                        hips.left_removed_quads, hips.left_patch_quads,
+                        hips.right_removed_quads, hips.right_patch_quads,
+                        hips.left_pelvis_ring, hips.left_thigh_ring,
+                        hips.right_pelvis_ring, hips.right_thigh_ring
                     ));
                 }
                 ui.label("Anatomy-fitted quad cage • fixed topology across morphology changes");

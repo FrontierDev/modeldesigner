@@ -13,6 +13,7 @@ pub mod quad_template;
 pub mod quad_flow;
 pub mod shoulder_patch;
 pub mod shoulder_rings;
+pub mod hip_rings;
 mod torso_target;
 pub mod controls;
 pub mod mesh;
@@ -113,6 +114,8 @@ pub struct Model {
     /// Neutral-topology shoulder ownership, [left, right] in [0, 1].
     /// Remains indexed with the cage under fitting and diagnostic poses.
     pub shoulder_guides: Vec<[f32; 2]>,
+    /// Neutral-topology hip/thigh ownership, [left, right] in [0, 1].
+    pub hip_guides: Vec<[f32; 2]>,
     pub joints: Vec<Joint>,
     pub influences: Vec<VertexInfluence>,
 }

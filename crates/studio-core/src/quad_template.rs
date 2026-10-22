@@ -10,6 +10,7 @@
 //! skin weights, or guarantee animation-quality topology.
 
 use crate::anatomy::AnatomyTarget;
+use crate::hip_rings::{apply as build_hip_rings, HipRingReport};
 use crate::mesh::{MeshBuilder, SurfaceMesh};
 use crate::quad_flow::{optimize, FlowReport};
 use crate::shoulder_patch::{
@@ -227,12 +228,17 @@ fn make_template() -> Result<NeutralTemplate, String> {
     let mut shoulder_report = refine_shoulders(&mut mesh, &neutral)?;
     // Replace an annular shoulder band with anatomical support loops before
     // vertex flow and well before any runtime morphology or rigging.
-    let (ring_report, shoulder_guides) = build_shoulder_rings(&mut mesh, &neutral)?;
+    let (ring_report, mut shoulder_guides) = build_shoulder_rings(&mut mesh, &neutral)?;
     let deformation_rewires = refine_deformation(
         &mut mesh, &neutral, &shoulder_guides
     )?;
     shoulder_report.left_deformation_rewires = deformation_rewires[0];
     shoulder_report.right_deformation_rewires = deformation_rewires[1];
+    // Weld bilateral upper-thigh support loops before the final neutral
+    // vertex-flow pass. Compaction preserves the existing shoulder guides.
+    let (hip_report, hip_guides) = build_hip_rings(
+        &mut mesh, &mut shoulder_guides, &neutral
+    )?;
     shoulder_report.hotspot_cost_after = measured_hotspot_cost(&mesh, &neutral)?;
     // After rewiring, redistribute neutral vertex positions without further
     // topology changes. Everything is cached for the archetype.
@@ -244,10 +250,11 @@ fn make_template() -> Result<NeutralTemplate, String> {
         triangles: mesh.triangles,
         caps: mesh.caps,
         shoulder_guides,
+        hip_guides,
         joints: Vec::new(),
         influences: Vec::new(),
     };
-    Ok(NeutralTemplate { model, flow_report, shoulder_report, ring_report })
+    Ok(NeutralTemplate { model, flow_report, shoulder_report, ring_report, hip_report })
 }
 
 struct NeutralTemplate {
@@ -255,6 +262,7 @@ struct NeutralTemplate {
     flow_report: FlowReport,
     shoulder_report: ShoulderPatchReport,
     ring_report: RingPatchReport,
+    hip_report: HipRingReport,
 }
 
 static NEUTRAL_TEMPLATE: OnceLock<Result<NeutralTemplate, String>> = OnceLock::new();
@@ -294,5 +302,14 @@ pub fn neutral_shoulder_ring_report() -> Result<&'static RingPatchReport, String
         .get_or_init(make_template)
         .as_ref()
         .map(|template| &template.ring_report)
+        .map_err(Clone::clone)
+}
+
+/// Structured neutral groin/upper-thigh patch counts and boundary sizes.
+pub fn neutral_hip_ring_report() -> Result<&'static HipRingReport, String> {
+    NEUTRAL_TEMPLATE
+        .get_or_init(make_template)
+        .as_ref()
+        .map(|template| &template.hip_report)
         .map_err(Clone::clone)
 }

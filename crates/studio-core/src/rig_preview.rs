@@ -110,24 +110,6 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Lower-limb proximity weighting remains provisional until hip/groin
-/// topology carries ownership guides of its own.
-fn hip_weight(p: Vec3, start: Vec3, end: Vec3, scale: f32) -> f32 {
-    let axis = end - start;
-    let length2 = axis.length_squared();
-    if length2 <= 1.0e-8 * scale * scale { return 0.0; }
-    let u = (p - start).dot(axis) / length2;
-    if !(-0.35..=1.40).contains(&u) { return 0.0; }
-    let centre = start + axis * u.clamp(0.0, 1.0);
-    let distance = p.distance(centre);
-    let radial = 1.0 - smooth(0.131 * scale, 0.238 * scale, distance);
-    // Most of the limb follows its joint even at u=0; only the tissue
-    // entering the torso is shared gradually with the spine/chest/pelvis.
-    let proximal = smooth(-0.27, 0.13, u);
-    let terminal = 1.0 - smooth(1.18, 1.39, u);
-    (radial * proximal * terminal).clamp(0.0, 1.0)
-}
-
 /// Normalised pelvis/spine/chest blend for the unposed trunk. The chest
 /// follows shoulder rotations through its child bones; assigning every
 /// non-limb vertex to pelvis previously caused excessive stretch.
@@ -173,30 +155,27 @@ fn strongest_four(raw: &[f32; 12]) -> VertexInfluence {
 }
 
 fn weights(
-    points: &[Vec3], joints: &[Joint], scale: f32,
-    shoulder_guides: &[[f32; 2]],
+    points: &[Vec3], scale: f32,
+    shoulder_guides: &[[f32; 2]], hip_guides: &[[f32; 2]],
 ) -> Result<Vec<VertexInfluence>, String> {
-    if shoulder_guides.len() != points.len()
+    if shoulder_guides.len() != points.len() || hip_guides.len() != points.len()
         || shoulder_guides.iter().flatten()
             .any(|&value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+        || hip_guides.iter().flatten()
+            .any(|&value| !value.is_finite() || !(0.0..=1.0).contains(&value))
     {
-        return Err("Fitted cage has invalid anatomical shoulder ownership".into());
+        return Err("Fitted cage has invalid anatomical limb ownership".into());
     }
-    const HIPS: [(usize, usize); 2] = [(8, 9), (10, 11)];
-    let result = points.iter().zip(shoulder_guides).map(|(&p, &shoulder)| {
+    let result = points.iter().zip(shoulder_guides).zip(hip_guides)
+        .map(|((&p, &shoulder), &hip)| {
         let mut limb = [0.0_f32; 4];
         // The neutral shoulder patch explicitly partitions upper arms from
         // the torso. Never infer shoulder ownership again by spatial radius:
         // this previously pulled lateral chest vertices with a raised arm.
         limb[..2].copy_from_slice(&shoulder);
-        for (slot, (root, end)) in HIPS.iter().copied().enumerate() {
-            limb[slot + 2] = hip_weight(
-                p,
-                Vec3::from_array(joints[root].position),
-                Vec3::from_array(joints[end].position),
-                scale
-            );
-        }
+        // The groin also has persistent neutral-topology ownership. Spatial
+        // hip proximity previously pulled pelvic and opposite-thigh vertices.
+        limb[2..].copy_from_slice(&hip);
         // Opposing hip influences are allowed to blend, but the central
         // crotch must retain enough pelvis influence to avoid the two
         // thighs pulling its vertices directly apart.
@@ -363,7 +342,8 @@ pub fn pose_fitted(
     let neutral_vertices: Vec<Vec3> = fitted.vertices.iter()
         .map(|p| Vec3::from_array(*p)).collect();
     let skin_weights = weights(
-        &neutral_vertices, &rest_joints, target.scale, &fitted.shoulder_guides
+        &neutral_vertices, target.scale, &fitted.shoulder_guides,
+        &fitted.hip_guides
     )?;
     let matrices = skinning::evaluate_joints(&rest_joints, &local_rotations(pose))?;
     let positions = skinning::deform(&neutral_vertices, &skin_weights, &matrices.skin)?;
@@ -387,6 +367,7 @@ pub fn pose_fitted(
             triangles: surface.triangles,
             caps: surface.caps,
             shoulder_guides: fitted.shoulder_guides.clone(),
+            hip_guides: fitted.hip_guides.clone(),
             joints: posed_joints,
             influences: skin_weights,
         },
@@ -549,4 +530,6 @@ mod tests {
                 "Right shoulder moved when only the left arm flexed");
         }
     }
+
+
 }
