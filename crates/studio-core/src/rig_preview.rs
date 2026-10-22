@@ -1,7 +1,8 @@
 //! Provisional rigging and deformation diagnostics for the *fitted* quad cage.
 //!
-//! The skeleton and continuous skin weights are rebuilt from the anatomical
-//! landmarks whenever morphology changes. Posing never regenerates topology.
+//! The skeleton uses anatomical landmarks; shoulder skin weights use stable
+//! neutral-cage ownership guides rather than proximity to the arm axis.
+//! Posing never regenerates topology.
 //! This is a diagnostic preview, NOT validated production rigging or export.
 
 use crate::anatomy::AnatomyTarget;
@@ -109,12 +110,9 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Continuous root-to-tip limb influence. The previous root ramp gave
-/// shoulders/hips less than ~35% influence at their own joint and blended
-/// *everything else* with pelvis, causing severe armpit/groin collapse.
-fn segment_weight(
-    p: Vec3, start: Vec3, end: Vec3, scale: f32, arm: bool,
-) -> f32 {
+/// Lower-limb proximity weighting remains provisional until hip/groin
+/// topology carries ownership guides of its own.
+fn hip_weight(p: Vec3, start: Vec3, end: Vec3, scale: f32) -> f32 {
     let axis = end - start;
     let length2 = axis.length_squared();
     if length2 <= 1.0e-8 * scale * scale { return 0.0; }
@@ -122,8 +120,7 @@ fn segment_weight(
     if !(-0.35..=1.40).contains(&u) { return 0.0; }
     let centre = start + axis * u.clamp(0.0, 1.0);
     let distance = p.distance(centre);
-    let (inner, outer) = if arm { (0.112, 0.208) } else { (0.131, 0.238) };
-    let radial = 1.0 - smooth(inner * scale, outer * scale, distance);
+    let radial = 1.0 - smooth(0.131 * scale, 0.238 * scale, distance);
     // Most of the limb follows its joint even at u=0; only the tissue
     // entering the torso is shared gradually with the spine/chest/pelvis.
     let proximal = smooth(-0.27, 0.13, u);
@@ -175,18 +172,29 @@ fn strongest_four(raw: &[f32; 12]) -> VertexInfluence {
     result
 }
 
-fn weights(points: &[Vec3], joints: &[Joint], scale: f32) -> Vec<VertexInfluence> {
-    const SEGMENTS: [(usize, usize, bool); 4] = [
-        (4, 5, true), (6, 7, true), (8, 9, false), (10, 11, false)
-    ];
-    points.iter().map(|&p| {
+fn weights(
+    points: &[Vec3], joints: &[Joint], scale: f32,
+    shoulder_guides: &[[f32; 2]],
+) -> Result<Vec<VertexInfluence>, String> {
+    if shoulder_guides.len() != points.len()
+        || shoulder_guides.iter().flatten()
+            .any(|&value| !value.is_finite() || !(0.0..=1.0).contains(&value))
+    {
+        return Err("Fitted cage has invalid anatomical shoulder ownership".into());
+    }
+    const HIPS: [(usize, usize); 2] = [(8, 9), (10, 11)];
+    let result = points.iter().zip(shoulder_guides).map(|(&p, &shoulder)| {
         let mut limb = [0.0_f32; 4];
-        for (slot, (root, end, arm)) in SEGMENTS.iter().copied().enumerate() {
-            limb[slot] = segment_weight(
+        // The neutral shoulder patch explicitly partitions upper arms from
+        // the torso. Never infer shoulder ownership again by spatial radius:
+        // this previously pulled lateral chest vertices with a raised arm.
+        limb[..2].copy_from_slice(&shoulder);
+        for (slot, (root, end)) in HIPS.iter().copied().enumerate() {
+            limb[slot + 2] = hip_weight(
                 p,
                 Vec3::from_array(joints[root].position),
                 Vec3::from_array(joints[end].position),
-                scale, arm
+                scale
             );
         }
         // Opposing hip influences are allowed to blend, but the central
@@ -208,12 +216,13 @@ fn weights(points: &[Vec3], joints: &[Joint], scale: f32) -> Vec<VertexInfluence
         raw[1] = trunk[1] * trunk_total;
         raw[2] = trunk[2] * trunk_total;
         if total > 1.0e-8 {
-            for (slot, (root, _, _)) in SEGMENTS.iter().copied().enumerate() {
+            for (slot, root) in [4_usize, 6, 8, 10].into_iter().enumerate() {
                 raw[root] = limb_total * limb[slot] / total;
             }
         }
         strongest_four(&raw)
-    }).collect()
+    }).collect();
+    Ok(result)
 }
 
 fn local_rotations(pose: DiagnosticPose) -> Vec<Quat> {
@@ -353,7 +362,9 @@ pub fn pose_fitted(
     let rest_joints = make_skeleton(&target)?;
     let neutral_vertices: Vec<Vec3> = fitted.vertices.iter()
         .map(|p| Vec3::from_array(*p)).collect();
-    let skin_weights = weights(&neutral_vertices, &rest_joints, target.scale);
+    let skin_weights = weights(
+        &neutral_vertices, &rest_joints, target.scale, &fitted.shoulder_guides
+    )?;
     let matrices = skinning::evaluate_joints(&rest_joints, &local_rotations(pose))?;
     let positions = skinning::deform(&neutral_vertices, &skin_weights, &matrices.skin)?;
     let posed_joints = skinning::posed_joints(&rest_joints, &matrices)?;
@@ -382,4 +393,58 @@ pub fn pose_fitted(
         report,
         defect_vertices,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shoulder_guides_anchor_chest_and_move_the_arm() {
+        let recipe = Recipe::default();
+        let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
+        let count = fitted.vertices.len();
+        assert_eq!(fitted.shoulder_guides.len(), count);
+        assert_eq!(fitted.shoulder_guides,
+            crate::quad_template::neutral_template().unwrap().shoulder_guides);
+        let posed = pose_fitted(&fitted, &recipe, DiagnosticPose {
+            left_arm: JointAngles { outward: 60.0, forward: 0.0 },
+            ..DiagnosticPose::default()
+        }).unwrap();
+        assert_eq!(posed.model.vertices.len(), count);
+        assert_eq!(posed.model.quads, fitted.quads);
+        let mut moved_arm = 0;
+        let mut anchored_torso = 0;
+        for (i, (&guide, weight)) in fitted.shoulder_guides.iter()
+            .zip(&posed.model.influences).enumerate()
+        {
+            let contribution = |bone: u16| weight.joint_indices.iter()
+                .zip(&weight.weights).filter(|(joint, _)| **joint == bone)
+                .map(|(_, weight)| *weight).sum::<f32>();
+            assert!((weight.weights.iter().sum::<f32>() - 1.0).abs() < 1.0e-5);
+            let distance = Vec3::from_array(fitted.vertices[i])
+                .distance(Vec3::from_array(posed.model.vertices[i]));
+            if guide[0] == 0.0 && guide[1] == 0.0 {
+                assert_eq!(contribution(4), 0.0);
+                assert_eq!(contribution(6), 0.0);
+                assert!(distance < 1.0e-5,
+                    "Torso vertex {i} followed the raised shoulder by {distance}");
+                anchored_torso += 1;
+            }
+            if guide[0] == 1.0 {
+                assert!(contribution(4) >= 0.97);
+                if distance > 0.08 { moved_arm += 1; }
+            }
+            if guide[1] == 1.0 {
+                assert!(contribution(6) >= 0.97);
+                assert!(distance < 1.0e-5,
+                    "The unposed right arm moved with the left shoulder");
+            }
+        }
+        assert!(anchored_torso > 500);
+        assert!(moved_arm > 20);
+        let mut unlabelled = fitted.clone();
+        unlabelled.shoulder_guides.pop();
+        assert!(pose_fitted(&unlabelled, &recipe, DiagnosticPose::default()).is_err());
+    }
 }
