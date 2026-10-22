@@ -9,7 +9,9 @@
 use crate::mesh::MeshBuilder;
 use crate::{Recipe, VertexInfluence};
 use glam::Vec3;
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::PI;
+#[cfg(test)]
+use std::f32::consts::TAU;
 
 const GRID: usize = 8;
 const THIGH_RING_COUNT: usize = 12;
