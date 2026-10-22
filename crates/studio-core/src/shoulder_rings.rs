@@ -197,6 +197,48 @@ fn sample(ring: &[u32], vertices: &[Vec3], fraction: f32) -> Vec3 {
     vertices[ring[0] as usize]
 }
 
+fn sample_ownership(
+    ring: &[u32], vertices: &[Vec3], labels: &[[f32; 2]],
+    side: usize, fraction: f32,
+) -> f32 {
+    let lengths: Vec<f32> = (0..ring.len()).map(|i| {
+        vertices[ring[i] as usize]
+            .distance(vertices[ring[(i + 1) % ring.len()] as usize])
+    }).collect();
+    let mut remaining = lengths.iter().sum::<f32>() * fraction;
+    for (i, &length) in lengths.iter().enumerate() {
+        if remaining <= length || i == ring.len() - 1 {
+            let next = (i + 1) % ring.len();
+            return labels[ring[i] as usize][side]
+                + (labels[ring[next] as usize][side]
+                    - labels[ring[i] as usize][side])
+                    * (remaining / length.max(f32::EPSILON)).clamp(0.0, 1.0);
+        }
+        remaining -= length;
+    }
+    labels[ring[0] as usize][side]
+}
+
+fn smooth(a: f32, b: f32, x: f32) -> f32 {
+    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// The proximal cut is already on the upper arm, not on the ribcage. The
+/// retained surface *before* that cut includes the deltoid and arm root; a
+/// pure flood-fill of the distal component incorrectly pins all of it to
+/// the chest. Transfer ownership across the anatomical shoulder boundary,
+/// fading medially into the torso and away from the shoulder volume.
+fn proximal_ownership(p: Vec3, guide: Guide, left: bool) -> f32 {
+    let outward = if left { -1.0 } else { 1.0 };
+    let lateral = outward * (p.x - guide.shoulder.x) / guide.scale;
+    let radial = guide.radius(p) / guide.scale;
+    let axis = guide.t(p);
+    smooth(-0.125, 0.045, lateral)
+        * (1.0 - smooth(0.12, 0.17, radial))
+        * smooth(-0.45, -0.08, axis)
+}
+
 fn project(target: &AnatomyTarget, mut p: Vec3) -> Option<Vec3> {
     for _ in 0..8 {
         let normal = target.outward_normal(p);
@@ -424,8 +466,14 @@ fn replace_band(
 
     let distal = distal_vertices(source, selected, &arm, &torso)?;
     let mut retained_labels = labels.to_vec();
-    for (label, is_distal) in retained_labels.iter_mut().zip(distal) {
-        if is_distal { label[side] = 1.0; }
+    for ((&p, label), is_distal) in source.vertices.iter()
+        .zip(&mut retained_labels).zip(distal)
+    {
+        label[side] = if is_distal {
+            1.0
+        } else {
+            proximal_ownership(p, guide, side == 0)
+        };
     }
 
     let removed = selected.iter().filter(|&&v| v).count();
@@ -446,22 +494,31 @@ fn replace_band(
         let mut patch_labels = retained_labels.clone();
         let mut phased_arm = arm.clone();
         phased_arm.rotate_left(shift);
-        // Torso interface -> deltoid cap -> underarm support -> upper-arm loop.
-        // The interior rings are projected onto the same neutral anatomy field.
+        // Proximal arm/deltoid -> support rings -> distal upper-arm loop.
+        // Skin ownership follows the same circumferential interpolation as
+        // the patch positions, preventing a rigidly anchored shoulder seam.
         let Some(deltoid) = support_ring(&mut mesh, &torso, &phased_arm, count, 0.32, target)
             else { continue; };
-        patch_labels.extend((0..deltoid.len()).map(|_| {
+        patch_labels.extend((0..deltoid.len()).map(|i| {
+            let u = i as f32 / count as f32;
+            let proximal = sample_ownership(&torso, &source.vertices,
+                &retained_labels, side, u);
+            let distal = sample_ownership(&phased_arm, &source.vertices,
+                &retained_labels, side, u);
             let mut label = [0.0; 2];
-            label[side] = 0.32;
+            label[side] = proximal + (distal - proximal) * 0.32;
             label
         }));
         let Some(axilla) = support_ring(&mut mesh, &torso, &phased_arm, count, 0.68, target)
             else { continue; };
-        patch_labels.extend((0..axilla.len()).map(|_| {
+        patch_labels.extend((0..axilla.len()).map(|i| {
+            let u = i as f32 / count as f32;
+            let proximal = sample_ownership(&torso, &source.vertices,
+                &retained_labels, side, u);
+            let distal = sample_ownership(&phased_arm, &source.vertices,
+                &retained_labels, side, u);
             let mut label = [0.0; 2];
-            // The distal support ring is mostly upper arm, even at the
-            // axillary underside. This reduces shear into its arm boundary.
-            label[side] = 0.78;
+            label[side] = proximal + (distal - proximal) * 0.68;
             label
         }));
         let hotspot = guide.axilla;
@@ -604,10 +661,10 @@ mod tests {
         assert_eq!(model.triangles.len(), 2 * model.quads.len());
         assert_eq!(model.shoulder_guides.len(), model.vertices.len());
         for side in 0..2 {
-            for value in [0.32, 0.78, 1.0] {
+            for (low, high) in [(0.10, 0.65), (0.65, 0.99), (0.99, 1.0)] {
                 assert!(model.shoulder_guides.iter()
-                    .any(|guide| guide[side] == value),
-                    "Missing guided shoulder region {side} at {value}");
+                    .any(|guide| (low..=high).contains(&guide[side])),
+                    "Missing guided shoulder region {side} in {low}..={high}");
             }
         }
         assert!(model.shoulder_guides.iter().all(|guide|
