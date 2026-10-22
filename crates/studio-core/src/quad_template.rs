@@ -12,6 +12,7 @@
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::{MeshBuilder, SurfaceMesh};
 use crate::quad_flow::{optimize, FlowReport};
+use crate::shoulder_patch::{apply as refine_shoulders, ShoulderPatchReport};
 use crate::{Model, Recipe};
 use glam::Vec3;
 use std::sync::OnceLock;
@@ -216,8 +217,12 @@ fn make_template() -> Result<NeutralTemplate, String> {
     if seen.iter().any(|&visited| !visited) {
         return Err("Automatic neutral cage contains disconnected components".into());
     }
-    // Optimize the neutral archetype ONCE. Connectivity remains exactly the
-    // surface-net connectivity for every player slider and every fit.
+    // Refine quad CONNECTIONS around each shoulder, once at neutral. The
+    // closed manifold boundary is preserved by every local two-quad patch.
+    // The fitter and rigger later reuse these indices unchanged.
+    let shoulder_report = refine_shoulders(&mut mesh, &neutral)?;
+    // After rewiring, redistribute neutral vertex positions without further
+    // topology changes. Everything is cached for the archetype.
     let flow_report = optimize(&mut mesh, &neutral)?;
     let model = Model {
         vertices: mesh.vertices.iter().map(|p| p.to_array()).collect(),
@@ -228,12 +233,13 @@ fn make_template() -> Result<NeutralTemplate, String> {
         joints: Vec::new(),
         influences: Vec::new(),
     };
-    Ok(NeutralTemplate { model, flow_report })
+    Ok(NeutralTemplate { model, flow_report, shoulder_report })
 }
 
 struct NeutralTemplate {
     model: Model,
     flow_report: FlowReport,
+    shoulder_report: ShoulderPatchReport,
 }
 
 static NEUTRAL_TEMPLATE: OnceLock<Result<NeutralTemplate, String>> = OnceLock::new();
@@ -255,5 +261,14 @@ pub fn neutral_flow_report() -> Result<&'static FlowReport, String> {
         .get_or_init(make_template)
         .as_ref()
         .map(|template| &template.flow_report)
+        .map_err(Clone::clone)
+}
+
+/// Report actual neutral quad connectivity changes near the shoulders.
+pub fn neutral_shoulder_report() -> Result<&'static ShoulderPatchReport, String> {
+    NEUTRAL_TEMPLATE
+        .get_or_init(make_template)
+        .as_ref()
+        .map(|template| &template.shoulder_report)
         .map_err(Clone::clone)
 }

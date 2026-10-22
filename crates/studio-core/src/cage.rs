@@ -8,7 +8,10 @@
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::SurfaceMesh;
 use crate::quad_flow::FlowReport;
-use crate::quad_template::{neutral_flow_report, neutral_template};
+use crate::quad_template::{
+    neutral_flow_report, neutral_shoulder_report, neutral_template
+};
+use crate::shoulder_patch::ShoulderPatchReport;
 use crate::{Model, Recipe};
 use glam::Vec3;
 
@@ -52,6 +55,7 @@ pub struct FitReport {
     /// Local candidates rejected by geometric safety checks.
     pub rejected_moves: usize,
     pub neutral_flow: FlowReport,
+    pub shoulder_patch: ShoulderPatchReport,
 }
 
 #[derive(Clone, Debug)]
@@ -402,6 +406,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
             moved_vertices: positions_moved_count,
             rejected_moves,
             neutral_flow: *neutral_flow_report()?,
+            shoulder_patch: *neutral_shoulder_report()?,
         },
     })
 }

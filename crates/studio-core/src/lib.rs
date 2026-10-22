@@ -11,6 +11,7 @@ pub mod anatomy;
 pub mod cage;
 pub mod quad_template;
 pub mod quad_flow;
+pub mod shoulder_patch;
 mod torso_target;
 pub mod controls;
 pub mod mesh;

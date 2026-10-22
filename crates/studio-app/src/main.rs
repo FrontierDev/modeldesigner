@@ -777,6 +777,12 @@ impl eframe::App for StudioApp {
                         neutral.extraordinary_vertices, neutral.maximum_quad_aspect,
                         neutral.minimum_corner_angle_degrees
                     ));
+                    let shoulder = report.shoulder_patch;
+                    ui.label(format!(
+                        "Shoulder quad rewires: L {} / R {} | joint pole cost {:.1} → {:.1}",
+                        shoulder.left_rewires, shoulder.right_rewires,
+                        shoulder.hotspot_cost_before, shoulder.hotspot_cost_after
+                    ));
                 }
                 ui.label("Anatomy-fitted quad cage • fixed topology across morphology changes");
             } else {
