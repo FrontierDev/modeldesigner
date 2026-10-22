@@ -99,3 +99,49 @@ cargo run -p modeldesigner --release
 In **Auto quad cage**, enable Wireframe and compare quad counts, silhouette
 and reported vertex/surface residuals against Anatomy target and legacy
 Topology, both at default and broad-shoulder/high-thigh-girth settings.
+
+## Anatomy-guided neutral quad vertex optimization
+
+`studio-core/src/quad_flow.rs` now adds an optional conservative neutral
+template stage immediately after closed surface-net extraction. The
+optimizer uses **left/right shoulder–elbow and hip–knee** landmarks to create
+four longitudinal direction fields. Near each upper limb's interior it
+reduces misaligned tangent-edge components so existing edges follow either
+the limb axis or its circumference. Contributions fade to zero at shoulder,
+groin and temporary limb ends to avoid assigning a misleading single
+direction to branching geometry.
+
+Algorithmic safeguards:
+
+- All neutral quad and triangle indices remain unchanged.
+- Updates are tangential to the signed field, with bounded re-projection.
+- Total displacement is limited relative to the original extracted neutral
+  vertices.
+- A global backtracking step rejects face orientation reversals, collapsed
+  triangles and extreme edge length changes.
+- A change is accepted only when the weighted limb-direction alignment
+  error decreases. If no safe improvement exists, the original positions
+  remain valid; no substitute topology is generated.
+
+This runs **once** when the `OnceLock` neutral archetype template is
+created. Runtime slider changes continue to use the same quad indices
+through `cage::fit`.
+
+The editor now exposes **Poles** in Auto quad cage mode. Yellow markers show
+non-valence-4 vertices; red marks valence 6 or greater. Only front-facing
+poles are shown. Neutral-template metrics include the alignment error
+before/after optimization, accepted passes, irregular vertices, maximum
+quad edge-length aspect and minimum interior corner angle. Existing
+vertex-to-SDF and face-centroid fitting residuals remain available.
+
+**Not yet implemented:** field-aligned connectivity reconstruction,
+singularity relocation, shoulder/hip concentric animation loops,
+validated skin weights, rigged output or normal/tangent-map generation.
+This vertex-only pass can improve wireframe layout but cannot move
+topological poles or fix problematic connections on its own.
+
+Local visual validation: enable Wireframe and Poles, compare left/right
+shoulders and thigh roots at neutral and high body-mass/girth settings.
+Check actual before/after alignment numbers rather than assuming the
+optimizer always accepts steps. No extra automated regression tests were
+added and GitHub CI remains manual-only.

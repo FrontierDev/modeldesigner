@@ -75,3 +75,14 @@
   refinement should use skeletal landmarks and directions without changing
   the index map during runtime morphing. Unrigged preview output remains
   deliberately non-exportable.
+- `quad_flow.rs` performs **once-only neutral template vertex redistribution**
+  guided by shoulder–elbow and hip–knee anatomical landmarks. It must never
+  rewrite connectivity during runtime slider updates; do not treat improved
+  axial alignment as animation-ready edge-flow topology.
+- Preserve strict triangle orientation, bounded quad-edge ratios and neutral
+  surface projection during any quad-flow optimization. If no safe improvement
+  is possible, report zero accepted passes rather than silently relaxing
+  the constraints.
+- The **Poles** overlay and neutral quad quality metrics are diagnostic, not
+  evidence of validated skinning. Rig/OBJ export for the auto quad cage remains
+  disabled until separate animation validation.

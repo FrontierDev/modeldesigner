@@ -116,3 +116,26 @@ flow and joint-aware remeshing of this neutral *template*, before any skinning.
 Changing sliders must never trigger new quadrangulation.
 
 GitHub CI remains manual-only.
+
+### Neutral anatomy-guided quad layout refinement
+
+The cached neutral surface-net template now has a **limb-direction vertex
+redistribution** stage. It uses hip/knee and shoulder/elbow anatomical
+landmarks to bias existing quad edges towards longitudinal or circumferential
+directions along the four upper limbs. This is performed **once at template
+construction time**, never when a player adjusts morphology sliders.
+
+Every proposed change is tangential to the anatomical field and clamped in
+size, with reprojection and backtracking against triangle inversion and
+extreme edge distortion. Areas near the crotch and armpits deliberately
+receive less influence because a single limb axis is not sufficient there.
+
+The **Auto quad cage** view now offers optional **Poles** markers (unusual
+quad valence) and reports neutral directional alignment, number of accepted
+optimization passes, irregular-pole count, worst quad edge-length ratio
+and minimum corner angle.
+
+**Important:** this pass redistributes quad vertices, not topology
+connectivity or pole locations. It does not yet construct animation-quality
+deltoid, shoulder or hip edge loops, and the cage remains unrigged and
+non-exportable.
