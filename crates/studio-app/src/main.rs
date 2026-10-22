@@ -155,7 +155,7 @@ fn shaded_vertex(normal: Vec3, light: Vec3) -> Color32 {
 fn preview(
     ui: &mut egui::Ui, model: &Model, recipe: &Recipe,
     camera: &mut Camera, wireframe: bool, skeleton: bool, anatomy_target: bool,
-    landmarks: &[Landmark],
+    landmarks: &[Landmark], show_poles: bool,
 ) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -277,6 +277,29 @@ fn preview(
             }
         }
     }
+    if show_poles && !model.quads.is_empty() {
+        // A valence-4 vertex is locally regular on an all-quad manifold.
+        // Show irregular poles rather than hiding them behind shading.
+        let mut adjacent = vec![Vec::<u32>::new(); model.vertices.len()];
+        for &[a,b,c,d] in &model.quads {
+            for (u,v) in [(a,b),(b,c),(c,d),(d,a)] {
+                adjacent[u as usize].push(v);
+                adjacent[v as usize].push(u);
+            }
+        }
+        for (i, ring) in adjacent.iter_mut().enumerate() {
+            ring.sort_unstable();
+            ring.dedup();
+            if ring.len() == 4 { continue; }
+            let location = Vec3::from_array(model.vertices[i]);
+            if let Some((p,_)) = project(location, &basis, rect) {
+                let color = if ring.len() >= 6 {
+                    Color32::from_rgb(245, 91, 81)
+                } else { Color32::from_rgb(245, 194, 84) };
+                painter.circle_filled(p, 2.7, color);
+            }
+        }
+    }
     for landmark in landmarks {
         if let Some((p,_)) = project(landmark.position,&basis,rect) {
             painter.circle_filled(p,3.2,Color32::from_rgb(230,175,90));
@@ -315,6 +338,7 @@ struct StudioApp {
     fit_strength: f32,
     anatomy_landmarks: Vec<Landmark>,
     show_landmarks: bool,
+    show_poles: bool,
     preview_kind: PreviewKind,
     camera: Camera,
     wireframe: bool,
@@ -345,7 +369,7 @@ impl StudioApp {
             camera: Camera::for_anatomy(recipe.height), recipe, model,
             anatomy_preview, anatomy_landmarks,
             fitted_cage: None, fit_report: None, fit_strength: 0.75,
-            show_landmarks: false, preview_kind: PreviewKind::Anatomy,
+            show_landmarks: false, show_poles: false, preview_kind: PreviewKind::Anatomy,
             wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
             show_advanced: false, notice }
     }
@@ -662,6 +686,9 @@ impl eframe::App for StudioApp {
                 if self.preview_kind == PreviewKind::Topology {
                     ui.checkbox(&mut self.show_skeleton, "Skeleton");
                 }
+                if self.preview_kind == PreviewKind::FittedCage {
+                    ui.checkbox(&mut self.show_poles, "Poles");
+                }
                 if ui.button("Reset view").clicked() {
                     self.camera = if self.preview_kind != PreviewKind::Topology {
                         Camera::for_anatomy(self.recipe.height)
@@ -708,7 +735,16 @@ impl eframe::App for StudioApp {
                             report.surface_maximum_error * 1000.0, report.iterations));
                     }
                 });
-                ui.label("New neutral anatomical quads • fixed connectivity across sliders • unrigged preview");
+                if let Some(report) = &self.fit_report {
+                    let neutral = report.neutral_flow;
+                    ui.label(format!(
+                        "Neutral edge alignment {:.3} → {:.3} ({} steps) | irregular poles {} | max edge aspect {:.2} | min corner {:.0}°",
+                        neutral.directional_error_before, neutral.directional_error_after,
+                        neutral.accepted_passes, neutral.extraordinary_vertices,
+                        neutral.maximum_quad_aspect, neutral.minimum_corner_angle_degrees
+                    ));
+                }
+                ui.label("Experimental neutral limb-flow optimization • fixed connectivity • no rig or export");
             } else {
                 ui.label("Torso + pelvis + upper arms/thighs • anatomical surface target • not rigged");
             }
@@ -724,7 +760,8 @@ impl eframe::App for StudioApp {
                     self.preview_kind == PreviewKind::Anatomy,
                     if self.preview_kind != PreviewKind::Topology && self.show_landmarks {
                         &self.anatomy_landmarks
-                    } else { &[] });
+                    } else { &[] },
+                    self.preview_kind == PreviewKind::FittedCage && self.show_poles);
             } else {
                 ui.centered_and_justified(|ui| { ui.label("No valid surface to preview"); });
             }
