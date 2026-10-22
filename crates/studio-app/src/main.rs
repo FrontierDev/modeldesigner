@@ -4,7 +4,8 @@ use eframe::egui::{self, Color32, Pos2, Rect, Sense, Stroke};
 use glam::Vec3;
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
 use std::path::{Path, PathBuf};
-use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, PreviewPose, Recipe, generate, generate_posed};
+use studio_core::{BuildControl, BuildSection, BUILD_CONTROLS, Model, Recipe};
+use studio_core::rig_preview::{self, DiagnosticPose, DeformationReport};
 use studio_core::anatomy::{AnatomyTarget, Landmark, TargetSurface};
 use studio_core::cage::{self, FitReport};
 use studio_core::controls::build_schema_json;
@@ -98,7 +99,7 @@ fn triangle_mesh(faces: &[Face]) -> egui::epaint::Mesh {
 /// Same fixed top-right statistics panel pattern as envmoddesigner.
 fn draw_model_statistics(
     painter: &egui::Painter, viewport: Rect, model: &Model, recipe: &Recipe,
-    anatomy_target: bool,
+    anatomy_target: bool, rigging: bool,
 ) {
     let panel = Rect::from_min_size(
         viewport.right_top() + egui::vec2(-194.0, 12.0),
@@ -109,18 +110,18 @@ fn draw_model_statistics(
         ("MODEL", String::new()),
         ("Study", if anatomy_target {
             "Anatomy target".to_owned()
-        } else if model.joints.is_empty() {
-            "Auto quad cage".to_owned()
+        } else if rigging {
+            "Rigging preview".to_owned()
         } else {
-            "Legacy topology".to_owned()
+            "Fitted cage".to_owned()
         }),
         ("Height", format!("{:.2} m", recipe.height)),
         ("Vertices", model.vertices.len().to_string()),
         ("Quads", if anatomy_target { "Not fitted".to_owned() } else { model.quads.len().to_string() }),
         ("Triangles", model.triangles.len().to_string()),
-        ("Joints", if model.joints.is_empty() {
-            "Not rigged".to_owned()
-        } else { model.joints.len().to_string() }),
+        ("Joints", if rigging {
+            format!("{} provisional", model.joints.len())
+        } else { "Not rigged".to_owned() }),
     ];
     for (index, (label, value)) in entries.iter().enumerate() {
         let y = panel.top() + 11.0 + index as f32 * 21.0;
@@ -155,7 +156,8 @@ fn shaded_vertex(normal: Vec3, light: Vec3) -> Color32 {
 fn preview(
     ui: &mut egui::Ui, model: &Model, recipe: &Recipe,
     camera: &mut Camera, wireframe: bool, skeleton: bool, anatomy_target: bool,
-    landmarks: &[Landmark], show_poles: bool,
+    landmarks: &[Landmark], show_poles: bool, rigging: bool,
+    defect_vertices: &[u32],
 ) {
     let available = ui.available_size();
     let (rect, response) = ui.allocate_exact_size(available, Sense::click_and_drag());
@@ -302,6 +304,19 @@ fn preview(
             }
         }
     }
+    // Highlight high-strain and inverted-face vertices on the actual posed
+    // cage. These are diagnostics, not simulated collision or corrective skinning.
+    for &id in defect_vertices {
+        let index = id as usize;
+        let Some(&xyz) = model.vertices.get(index) else { continue; };
+        let position = Vec3::from_array(xyz);
+        if let Some(&normal) = model.normals.get(index) {
+            if Vec3::from_array(normal).dot(basis.eye-position) <= 0.0 { continue; }
+        }
+        if let Some((screen,_)) = project(position, &basis, rect) {
+            painter.circle_filled(screen, 3.3, Color32::from_rgb(255,75,75));
+        }
+    }
     for landmark in landmarks {
         if let Some((p,_)) = project(landmark.position,&basis,rect) {
             painter.circle_filled(p,3.2,Color32::from_rgb(230,175,90));
@@ -309,7 +324,7 @@ fn preview(
                 landmark.name,egui::FontId::monospace(10.0),Color32::from_gray(230));
         }
     }
-    draw_model_statistics(&painter, rect, model, recipe, anatomy_target);
+    draw_model_statistics(&painter, rect, model, recipe, anatomy_target, rigging);
 }
 
 /// Adapt the disposable target triangles for the existing 3D viewport.
@@ -327,25 +342,28 @@ fn anatomy_preview_model(surface: TargetSurface) -> Model {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PreviewKind { Anatomy, FittedCage, Topology }
+enum PreviewKind { Anatomy, FittedCage, Rigging }
 
 struct StudioApp {
     recipe: Recipe,
     saved: Recipe,
     recipe_path: Option<PathBuf>,
-    model: Option<Model>,
     anatomy_preview: Option<Model>,
     fitted_cage: Option<Model>,
+    rigged_preview: Option<Model>,
     fit_report: Option<FitReport>,
+    deformation: Option<DeformationReport>,
+    defect_vertices: Vec<u32>,
     fit_strength: f32,
     anatomy_landmarks: Vec<Landmark>,
     show_landmarks: bool,
     show_poles: bool,
+    show_defects: bool,
     preview_kind: PreviewKind,
     camera: Camera,
     wireframe: bool,
     show_skeleton: bool,
-    pose: PreviewPose,
+    pose: DiagnosticPose,
     show_advanced: bool,
     notice: Option<(String, bool)>,
 }
@@ -358,7 +376,6 @@ impl StudioApp {
         visuals.selection.bg_fill = Color32::from_rgb(55, 107, 134);
         cc.egui_ctx.set_visuals(visuals);
         let recipe = Recipe::default();
-        let model = generate(&recipe).ok();
         let initial = AnatomyTarget::from_recipe(&recipe)
             .and_then(|target| target.sample_preview().map(|surface| (target.landmarks, surface)));
         let (anatomy_preview, anatomy_landmarks, notice) = match initial {
@@ -368,11 +385,13 @@ impl StudioApp {
                 Some((format!("Anatomical target failed: {error}"),true))),
         };
         Self { saved: recipe.clone(), recipe_path: None,
-            camera: Camera::for_anatomy(recipe.height), recipe, model,
+            camera: Camera::for_anatomy(recipe.height), recipe,
             anatomy_preview, anatomy_landmarks,
-            fitted_cage: None, fit_report: None, fit_strength: 1.0,
-            show_landmarks: false, show_poles: false, preview_kind: PreviewKind::Anatomy,
-            wireframe: false, show_skeleton: false, pose: PreviewPose::default(),
+            fitted_cage: None, rigged_preview: None, fit_report: None,
+            deformation: None, defect_vertices: Vec::new(), fit_strength: 1.0,
+            show_landmarks: false, show_poles: false, show_defects: true,
+            preview_kind: PreviewKind::Anatomy,
+            wireframe: false, show_skeleton: true, pose: DiagnosticPose::default(),
             show_advanced: false, notice }
     }
 
@@ -391,10 +410,8 @@ impl StudioApp {
         self.recipe = recipe;
         self.saved = self.recipe.clone();
         self.recipe_path = None;
-        self.camera = if self.preview_kind != PreviewKind::Topology {
-            Camera::for_anatomy(self.recipe.height)
-        } else { Camera::framed(self.recipe.height) };
-        self.pose = PreviewPose::default();
+        self.camera = Camera::for_anatomy(self.recipe.height);
+        self.pose = DiagnosticPose::default();
         self.notice = None;
         self.regenerate();
     }
@@ -406,45 +423,62 @@ impl StudioApp {
                     .and_then(|target| target.sample_preview()
                         .map(|surface| (target.landmarks, surface)))
                 {
-                    Ok((landmarks,surface)) => {
+                    Ok((landmarks, surface)) => {
                         self.anatomy_landmarks = landmarks;
                         self.anatomy_preview = Some(anatomy_preview_model(surface));
                         self.notice = None;
                     }
                     Err(error) => {
                         self.anatomy_preview = None;
-                        self.anatomy_landmarks.clear();
                         self.notice = Some((format!("Anatomical target failed: {error}"), true));
                     }
                 }
             }
-            PreviewKind::FittedCage => {
-                match cage::fit(&self.recipe,self.fit_strength) {
+            PreviewKind::FittedCage | PreviewKind::Rigging => {
+                match cage::fit(&self.recipe, self.fit_strength) {
                     Ok(fit) => {
                         self.fitted_cage = Some(fit.model);
                         self.fit_report = Some(fit.report);
                         self.anatomy_landmarks = AnatomyTarget::from_recipe(&self.recipe)
                             .map(|target| target.landmarks).unwrap_or_default();
                         self.notice = None;
+                        if self.preview_kind == PreviewKind::Rigging {
+                            self.update_rig_pose();
+                        }
                     }
                     Err(error) => {
                         self.fitted_cage = None;
+                        self.rigged_preview = None;
                         self.fit_report = None;
+                        self.deformation = None;
+                        self.defect_vertices.clear();
                         self.notice = Some((format!("Cage fitting failed: {error}"), true));
                     }
                 }
             }
-            PreviewKind::Topology => {
-                match generate_posed(&self.recipe,self.pose) {
-                    Ok(model) => {
-                        self.model = Some(model);
-                        self.notice = None;
-                    }
-                    Err(error) => {
-                        self.model = None;
-                        self.notice = Some((format!("Generation failed: {error}"), true));
-                    }
-                }
+        }
+    }
+
+    // Reuse the already fitted cage on every pose-slider change; only linear
+    // blend skinning and deformation diagnostics need to be recalculated.
+    fn update_rig_pose(&mut self) {
+        let Some(cage) = self.fitted_cage.as_ref() else {
+            self.rigged_preview = None;
+            self.notice = Some(("Rigging requires a fitted cage".into(), true));
+            return;
+        };
+        match rig_preview::pose_fitted(cage, &self.recipe, self.pose) {
+            Ok(result) => {
+                self.rigged_preview = Some(result.model);
+                self.deformation = Some(result.report);
+                self.defect_vertices = result.defect_vertices;
+                self.notice = None;
+            }
+            Err(error) => {
+                self.rigged_preview = None;
+                self.deformation = None;
+                self.defect_vertices.clear();
+                self.notice = Some((format!("Rigging preview failed: {error}"), true));
             }
         }
     }
@@ -459,10 +493,8 @@ impl StudioApp {
                 self.recipe = recipe;
                 self.saved = self.recipe.clone();
                 self.recipe_path = Some(path);
-                self.camera = if self.preview_kind != PreviewKind::Topology {
-                    Camera::for_anatomy(self.recipe.height)
-                } else { Camera::framed(self.recipe.height) };
-                self.pose = PreviewPose::default();
+                self.camera = Camera::for_anatomy(self.recipe.height);
+                self.pose = DiagnosticPose::default();
                 self.notice = None;
                 self.regenerate();
             }
@@ -485,31 +517,6 @@ impl StudioApp {
             }
             Err(e) => self.notice = Some((format!("Save failed: {e}"), true)),
         }
-    }
-
-    fn export(&mut self) {
-        if self.preview_kind != PreviewKind::Topology {
-            self.notice = Some(("Anatomy and fitted-cage views are unrigged previews; switch to Topology to export".into(), true));
-            return;
-        }
-        if self.model.is_none() {
-            self.notice = Some(("Export failed: no validated model".into(), true));
-            return;
-        }
-        let Some(mut path) = FileDialog::new().add_filter("Wavefront OBJ", &["obj"])
-            .set_file_name("humanoid-study.obj").save_file() else { return; };
-        if path.extension().is_none() { path.set_extension("obj"); }
-        let companion = path.with_extension("rig.json");
-        // The pose controls are visual diagnostics only: export neutral bind pose.
-        let result = generate(&self.recipe).and_then(|neutral| {
-            let rig = neutral.to_rig_json()?;
-            write_atomic(&path, &neutral.to_obj())?;
-            write_atomic(&companion, &rig)
-        });
-        self.notice = Some(match result {
-            Ok(()) => (format!("Exported {} and {}", path.display(), companion.display()), false),
-            Err(e) => (format!("Export failed: {e}"), true),
-        });
     }
 
     fn export_build_schema(&mut self) {
@@ -644,7 +651,6 @@ impl eframe::App for StudioApp {
                 if ui.button("Save").clicked() { self.save_recipe(false); }
                 if ui.button("Save As").clicked() { self.save_recipe(true); }
                 ui.separator();
-                if ui.button("Export OBJ + Rig").clicked() { self.export(); }
                 if ui.button("Export Build Schema").clicked() { self.export_build_schema(); }
                 if self.dirty() { ui.label("• Unsaved"); }
             });
