@@ -783,6 +783,14 @@ impl eframe::App for StudioApp {
                         shoulder.left_rewires, shoulder.right_rewires,
                         shoulder.hotspot_cost_before, shoulder.hotspot_cost_after
                     ));
+                    let rings = report.shoulder_rings;
+                    ui.label(format!(
+                        "Structured shoulder quads: L {} → {} / R {} → {} | torso/arm rings L {}/{} R {}/{}",
+                        rings.left_removed_quads, rings.left_patch_quads,
+                        rings.right_removed_quads, rings.right_patch_quads,
+                        rings.left_torso_ring, rings.left_arm_ring,
+                        rings.right_torso_ring, rings.right_arm_ring
+                    ));
                 }
                 ui.label("Anatomy-fitted quad cage • fixed topology across morphology changes");
             } else {

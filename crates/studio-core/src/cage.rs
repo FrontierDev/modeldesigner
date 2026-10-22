@@ -9,9 +9,11 @@ use crate::anatomy::AnatomyTarget;
 use crate::mesh::SurfaceMesh;
 use crate::quad_flow::FlowReport;
 use crate::quad_template::{
-    neutral_flow_report, neutral_shoulder_report, neutral_template
+    neutral_flow_report, neutral_shoulder_report, neutral_shoulder_ring_report,
+    neutral_template
 };
 use crate::shoulder_patch::ShoulderPatchReport;
+use crate::shoulder_rings::RingPatchReport;
 use crate::{Model, Recipe};
 use glam::Vec3;
 
@@ -56,6 +58,7 @@ pub struct FitReport {
     pub rejected_moves: usize,
     pub neutral_flow: FlowReport,
     pub shoulder_patch: ShoulderPatchReport,
+    pub shoulder_rings: RingPatchReport,
 }
 
 #[derive(Clone, Debug)]
@@ -407,6 +410,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
             rejected_moves,
             neutral_flow: *neutral_flow_report()?,
             shoulder_patch: *neutral_shoulder_report()?,
+            shoulder_rings: *neutral_shoulder_ring_report()?,
         },
     })
 }
