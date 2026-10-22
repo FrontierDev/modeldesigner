@@ -227,7 +227,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
     let (mean_error,maximum_error) = errors(&positions,&target);
     let displacement = positions.iter().zip(&reference)
         .map(|(&a,&b)| a.distance(b)).fold(0.0_f32, f32::max);
-    let mut surface = SurfaceMesh {
+    let surface = SurfaceMesh {
         vertices: positions,
         quads: source.quads,
         triangles: source.triangles,
@@ -236,7 +236,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
     surface.validate_closed()?;
     let normals = surface.normals();
     let model = Model {
-        vertices: surface.vertices.drain(..).map(Vec3::to_array).collect(),
+        vertices: surface.vertices.into_iter().map(|vertex| vertex.to_array()).collect(),
         normals,
         quads: surface.quads,
         triangles: surface.triangles,
