@@ -308,6 +308,17 @@ fn hotspot_cost(mesh: &SurfaceMesh, guides: &[Guide;2], scale: f32) -> f32 {
     }).sum()
 }
 
+/// Measure the final pole cost after any subsequent neutral-only patches.
+pub(crate) fn measured_hotspot_cost(
+    mesh: &SurfaceMesh, target: &AnatomyTarget,
+) -> Result<f32, String> {
+    let guides = [
+        Guide::from_landmarks(target, true)?,
+        Guide::from_landmarks(target, false)?,
+    ];
+    Ok(hotspot_cost(mesh, &guides, target.scale))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

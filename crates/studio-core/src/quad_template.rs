@@ -12,7 +12,9 @@
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::{MeshBuilder, SurfaceMesh};
 use crate::quad_flow::{optimize, FlowReport};
-use crate::shoulder_patch::{apply as refine_shoulders, ShoulderPatchReport};
+use crate::shoulder_patch::{
+    apply as refine_shoulders, measured_hotspot_cost, ShoulderPatchReport
+};
 use crate::shoulder_rings::{apply as build_shoulder_rings, RingPatchReport};
 use crate::{Model, Recipe};
 use glam::Vec3;
@@ -221,10 +223,11 @@ fn make_template() -> Result<NeutralTemplate, String> {
     // Refine quad CONNECTIONS around each shoulder, once at neutral. The
     // closed manifold boundary is preserved by every local two-quad patch.
     // The fitter and rigger later reuse these indices unchanged.
-    let shoulder_report = refine_shoulders(&mut mesh, &neutral)?;
+    let mut shoulder_report = refine_shoulders(&mut mesh, &neutral)?;
     // Replace an annular shoulder band with anatomical support loops before
     // vertex flow and well before any runtime morphology or rigging.
     let ring_report = build_shoulder_rings(&mut mesh, &neutral)?;
+    shoulder_report.hotspot_cost_after = measured_hotspot_cost(&mesh, &neutral)?;
     // After rewiring, redistribute neutral vertex positions without further
     // topology changes. Everything is cached for the archetype.
     let flow_report = optimize(&mut mesh, &neutral)?;
