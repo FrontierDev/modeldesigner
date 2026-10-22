@@ -292,6 +292,8 @@ fn preview(
             ring.dedup();
             if ring.len() == 4 { continue; }
             let location = Vec3::from_array(model.vertices[i]);
+            let normal = Vec3::from_array(model.normals[i]);
+            if normal.dot(basis.eye - location) <= 0.0 { continue; }
             if let Some((p,_)) = project(location, &basis, rect) {
                 let color = if ring.len() >= 6 {
                     Color32::from_rgb(245, 91, 81)

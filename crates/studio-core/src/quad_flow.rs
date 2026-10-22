@@ -163,11 +163,13 @@ fn quality(mesh: &SurfaceMesh, edges: &[(usize,usize)], accepted: usize,
     for quad in &mesh.quads {
         let [a,b,c,d] = quad.map(|i| mesh.vertices[i as usize]);
         let points = [a,b,c,d];
-        let lengths = (0..4).map(|i| {
-            points[i].distance(points[(i+1)%4])
-        });
-        let largest = lengths.clone().fold(0.0_f32, f32::max);
-        let smallest = lengths.fold(f32::INFINITY, f32::min);
+        let mut largest = 0.0_f32;
+        let mut smallest = f32::INFINITY;
+        for i in 0..4 {
+            let length = points[i].distance(points[(i + 1) % 4]);
+            largest = largest.max(length);
+            smallest = smallest.min(length);
+        }
         if smallest > 1.0e-7 {
             max_aspect = max_aspect.max(largest / smallest);
         }
