@@ -50,7 +50,17 @@ pub struct DeformationReport {
     pub inverted_faces: usize,
     pub collapsed_faces: usize,
     pub strained_edges: usize,
+    pub stretched_edges: usize,
+    pub compressed_edges: usize,
+    /// Edges shorter than a fraction of the median neutral quad edge length.
+    /// Their raw ratios are unstable and reported separately.
+    pub short_reference_edges: usize,
+    /// Largest symmetric length-change ratio on a representative quad edge.
     pub worst_edge_stretch: f32,
+    /// Largest ratio including unusually short neutral edges.
+    pub worst_raw_edge_ratio: f32,
+    pub worst_reference_length: f32,
+    pub worst_posed_length: f32,
     pub largest_vertex_displacement: f32,
 }
 
@@ -99,47 +109,110 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Approximate anatomical influence of one upper-limb segment. Weight fades
-/// along its root and radially into the trunk, avoiding a hard skinning seam.
+/// Continuous root-to-tip limb influence. The previous root ramp gave
+/// shoulders/hips less than ~35% influence at their own joint and blended
+/// *everything else* with pelvis, causing severe armpit/groin collapse.
 fn segment_weight(
     p: Vec3, start: Vec3, end: Vec3, scale: f32, arm: bool,
 ) -> f32 {
     let axis = end - start;
-    let u = (p - start).dot(axis) / axis.length_squared();
-    if !(-0.25..=1.35).contains(&u) {
-        return 0.0;
+    let length2 = axis.length_squared();
+    if length2 <= 1.0e-8 * scale * scale { return 0.0; }
+    let u = (p - start).dot(axis) / length2;
+    if !(-0.35..=1.40).contains(&u) { return 0.0; }
+    let centre = start + axis * u.clamp(0.0, 1.0);
+    let distance = p.distance(centre);
+    let (inner, outer) = if arm { (0.112, 0.208) } else { (0.131, 0.238) };
+    let radial = 1.0 - smooth(inner * scale, outer * scale, distance);
+    // Most of the limb follows its joint even at u=0; only the tissue
+    // entering the torso is shared gradually with the spine/chest/pelvis.
+    let proximal = smooth(-0.27, 0.13, u);
+    let terminal = 1.0 - smooth(1.18, 1.39, u);
+    (radial * proximal * terminal).clamp(0.0, 1.0)
+}
+
+/// Normalised pelvis/spine/chest blend for the unposed trunk. The chest
+/// follows shoulder rotations through its child bones; assigning every
+/// non-limb vertex to pelvis previously caused excessive stretch.
+fn trunk_weights(height: f32) -> [f32; 3] {
+    let pelvis = 1.0 - smooth(0.77, 1.04, height);
+    let upper = smooth(1.04, 1.29, height);
+    let spine = (1.0 - pelvis) * (1.0 - upper);
+    let chest = (1.0 - pelvis) * upper;
+    [pelvis, spine, chest]
+}
+
+/// Four highest contributions are retained from up to seven continuous bone
+/// fields. The result remains deterministic and exactly normalised; there
+/// is no winner-takes-all selection of a single left/right limb.
+fn strongest_four(raw: &[f32; 12]) -> VertexInfluence {
+    let mut top = [(0_usize, 0.0_f32); 4];
+    for (index, &amount) in raw.iter().enumerate() {
+        if amount <= 0.0 { continue; }
+        for slot in 0..4 {
+            if amount > top[slot].1 {
+                for shift in (slot + 1..4).rev() {
+                    top[shift] = top[shift - 1];
+                }
+                top[slot] = (index, amount);
+                break;
+            }
+        }
     }
-    let distance = (p - (start + axis * u.clamp(0.0, 1.0))).length();
-    let radius = if arm { 0.135 } else { 0.165 };
-    let radial = 1.0 - smooth(radius * scale, (radius + 0.065) * scale, distance);
-    let root = smooth(-0.18, if arm { 0.28 } else { 0.34 }, u);
-    let end_fade = 1.0 - smooth(1.14, 1.36, u);
-    (radial * root * end_fade).clamp(0.0, 1.0)
+    let total = top.iter().map(|(_, weight)| *weight).sum::<f32>();
+    let mut result = VertexInfluence {
+        joint_indices: [0; 4],
+        weights: [0.0; 4],
+    };
+    if total <= 1.0e-8 {
+        result.weights[0] = 1.0;
+        return result;
+    }
+    for (slot, &(index, amount)) in top.iter().enumerate() {
+        result.joint_indices[slot] = index as u16;
+        result.weights[slot] = amount / total;
+    }
+    result
 }
 
 fn weights(points: &[Vec3], joints: &[Joint], scale: f32) -> Vec<VertexInfluence> {
-    // The highest-scoring limb dominates, preventing four overlapping limb
-    // influences across the medial groin. Pelvis retains the residual weight.
     const SEGMENTS: [(usize, usize, bool); 4] = [
         (4, 5, true), (6, 7, true), (8, 9, false), (10, 11, false)
     ];
     points.iter().map(|&p| {
-        let mut strongest = 0.0_f32;
-        let mut selected = 0_usize;
-        for (start, end, arm) in SEGMENTS {
-            let influence = segment_weight(p,
-                Vec3::from_array(joints[start].position),
-                Vec3::from_array(joints[end].position), scale, arm);
-            if influence > strongest {
-                strongest = influence;
-                selected = start;
+        let mut limb = [0.0_f32; 4];
+        for (slot, (root, end, arm)) in SEGMENTS.iter().copied().enumerate() {
+            limb[slot] = segment_weight(
+                p,
+                Vec3::from_array(joints[root].position),
+                Vec3::from_array(joints[end].position),
+                scale, arm
+            );
+        }
+        // Opposing hip influences are allowed to blend, but the central
+        // crotch must retain enough pelvis influence to avoid the two
+        // thighs pulling its vertices directly apart.
+        let groin = (1.0 - smooth(0.015, 0.085, p.x.abs() / scale))
+            * (1.0 - smooth(0.68, 0.84, p.y / scale));
+        limb[2] *= 1.0 - 0.60 * groin;
+        limb[3] *= 1.0 - 0.60 * groin;
+
+        let total = limb.iter().sum::<f32>();
+        // Leave a small, continuous amount of torso anchoring even where
+        // the limb's shoulder/hip influence is otherwise fully dominant.
+        let limb_total = total.min(0.98);
+        let trunk_total = 1.0 - limb_total;
+        let trunk = trunk_weights(p.y / scale);
+        let mut raw = [0.0_f32; 12];
+        raw[0] = trunk[0] * trunk_total;
+        raw[1] = trunk[1] * trunk_total;
+        raw[2] = trunk[2] * trunk_total;
+        if total > 1.0e-8 {
+            for (slot, (root, _, _)) in SEGMENTS.iter().copied().enumerate() {
+                raw[root] = limb_total * limb[slot] / total;
             }
         }
-        let limb_weight = strongest.clamp(0.0, 1.0);
-        VertexInfluence {
-            joint_indices: [0, selected as u16, 0, 0],
-            weights: [1.0 - limb_weight, limb_weight, 0.0, 0.0],
-        }
+        strongest_four(&raw)
     }).collect()
 }
 
@@ -206,14 +279,57 @@ fn analyze(reference: &[Vec3], posed: &[Vec3], triangles: &[[u32; 3]],
             edges.insert((u.min(v),u.max(v)));
         }
     }
-    for (a,b) in edges {
+
+    // A few surface-net quads have extremely short edges. Their raw
+    // length-change ratios can explode even with millimetric motion.
+    // Use the median reference edge to identify these separately rather
+    // than allowing them to dominate the deformation-quality summary.
+    let edge_lengths: Vec<(u32,u32,f32)> = edges.iter().map(|&(a,b)| {
+        (a,b,reference[a as usize].distance(reference[b as usize]))
+    }).collect();
+    let mut lengths: Vec<f32> = edge_lengths.iter().map(|&(_,_,length)| length)
+        .filter(|length| length.is_finite() && *length > 1.0e-8).collect();
+    lengths.sort_by(|a,b| a.total_cmp(b));
+    let median = lengths.get(lengths.len() / 2).copied().unwrap_or(0.0);
+    let short_threshold = (0.15 * median).max(0.001);
+    report.worst_edge_stretch = 1.0;
+    report.worst_raw_edge_ratio = 1.0;
+    for (a,b,before) in edge_lengths {
         let (i,j) = (a as usize,b as usize);
-        let before = reference[i].distance(reference[j]);
         let after = posed[i].distance(posed[j]);
-        if before < 1.0e-7 { continue; }
+        if before <= 1.0e-8 || !before.is_finite() || !after.is_finite() {
+            report.collapsed_faces += 1;
+            defects.extend([a,b]);
+            continue;
+        }
         let ratio = after / before;
-        report.worst_edge_stretch = report.worst_edge_stretch.max(ratio.max(1.0 / ratio.max(1.0e-7)));
-        if ratio < 0.55 || ratio > 1.8 {
+        let symmetric = ratio.max(1.0 / ratio.max(1.0e-8));
+        report.worst_raw_edge_ratio = report.worst_raw_edge_ratio.max(symmetric);
+
+        if before < short_threshold {
+            report.short_reference_edges += 1;
+            // Still expose grossly distorted short edges, but do not flag
+            // sub-millimetre differences solely because of a huge ratio.
+            if (after - before).abs() > (0.45 * median).max(0.005) {
+                report.strained_edges += 1;
+                if after > before { report.stretched_edges += 1; }
+                else { report.compressed_edges += 1; }
+                defects.extend([a,b]);
+            }
+            continue;
+        }
+
+        if symmetric > report.worst_edge_stretch {
+            report.worst_edge_stretch = symmetric;
+            report.worst_reference_length = before;
+            report.worst_posed_length = after;
+        }
+        if ratio > 1.80 {
+            report.stretched_edges += 1;
+            report.strained_edges += 1;
+            defects.extend([a,b]);
+        } else if ratio < 0.55 {
+            report.compressed_edges += 1;
             report.strained_edges += 1;
             defects.extend([a,b]);
         }
