@@ -9,11 +9,11 @@ use crate::mesh::SurfaceMesh;
 use glam::Vec3;
 use std::collections::{BTreeMap, BTreeSet};
 
-type Edge = (u32, u32);
-type EdgeUse = (usize, u32, u32);
+pub(crate) type Edge = (u32, u32);
+pub(crate) type EdgeUse = (usize, u32, u32);
 const MIN_PATCH_FACES: usize = 32;
-const MIN_RING: usize = 8;
-const MAX_RING: usize = 64;
+pub(crate) const MIN_RING: usize = 8;
+pub(crate) const MAX_RING: usize = 64;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RingPatchReport {
@@ -28,11 +28,11 @@ pub struct RingPatchReport {
 }
 
 #[derive(Clone, Copy)]
-struct Guide {
-    shoulder: Vec3,
-    axis: Vec3,
-    axilla: Vec3,
-    scale: f32,
+pub(crate) struct Guide {
+    pub(crate) shoulder: Vec3,
+    pub(crate) axis: Vec3,
+    pub(crate) axilla: Vec3,
+    pub(crate) scale: f32,
 }
 
 impl Guide {
@@ -52,15 +52,32 @@ impl Guide {
         Ok(Self { shoulder, axis, axilla, scale: target.scale })
     }
 
-    fn t(self, p: Vec3) -> f32 {
+    /// Common ring-cut geometry also serves the hip/groin junction. Keep
+    /// its anatomical pivot and groin hotspot separate from shoulder data.
+    pub(crate) fn hip(target: &AnatomyTarget, left: bool) -> Result<Self, String> {
+        let get = |name: &str| target.landmarks.iter()
+            .find(|p| p.name == name).map(|p| p.position)
+            .ok_or_else(|| format!("Missing hip topology landmark: {name}"));
+        let shoulder = get(if left { "left_hip" } else { "right_hip" })?;
+        let knee = get(if left { "left_knee" } else { "right_knee" })?;
+        let pubic = get("pubic_symphysis")?;
+        let axis = knee - shoulder;
+        if !axis.is_finite() || axis.length_squared() < 0.01 * target.scale.powi(2) {
+            return Err("Hip topology has an invalid upper-leg axis".into());
+        }
+        let axilla = shoulder + axis * 0.50 + (pubic - shoulder) * 0.06;
+        Ok(Self { shoulder, axis, axilla, scale: target.scale })
+    }
+
+    pub(crate) fn t(self, p: Vec3) -> f32 {
         (p - self.shoulder).dot(self.axis) / self.axis.length_squared()
     }
 
-    fn radius(self, p: Vec3) -> f32 {
+    pub(crate) fn radius(self, p: Vec3) -> f32 {
         p.distance(self.shoulder + self.axis * self.t(p))
     }
 
-    fn front(self) -> Vec3 {
+    pub(crate) fn front(self) -> Vec3 {
         let axis = self.axis.normalize();
         (Vec3::Z - axis * axis.dot(Vec3::Z)).normalize()
     }
@@ -80,7 +97,7 @@ fn edge_uses(mesh: &SurfaceMesh) -> BTreeMap<Edge, Vec<EdgeUse>> {
     uses
 }
 
-fn adjacency(mesh: &SurfaceMesh) -> Result<(Vec<Vec<usize>>, BTreeMap<Edge, Vec<EdgeUse>>), String> {
+pub(crate) fn adjacency(mesh: &SurfaceMesh) -> Result<(Vec<Vec<usize>>, BTreeMap<Edge, Vec<EdgeUse>>), String> {
     let uses = edge_uses(mesh);
     let mut adjacent = vec![Vec::new(); mesh.quads.len()];
     for incidence in uses.values() {
@@ -95,7 +112,7 @@ fn adjacency(mesh: &SurfaceMesh) -> Result<(Vec<Vec<usize>>, BTreeMap<Edge, Vec<
 }
 
 /// Keep only the connected arm component within an anatomical cylinder.
-fn band_faces(
+pub(crate) fn band_faces(
     mesh: &SurfaceMesh, guide: Guide, adjacent: &[Vec<usize>],
     start: f32, end: f32, radius: f32,
 ) -> Option<Vec<bool>> {
@@ -136,7 +153,7 @@ fn band_faces(
 
 /// Boundary half-edges point in the removed face's original winding.
 /// That winding must be reused by the replacement, opposing retained faces.
-fn boundary_loops(
+pub(crate) fn boundary_loops(
     selected: &[bool], uses: &BTreeMap<Edge, Vec<EdgeUse>>,
 ) -> Option<Vec<Vec<u32>>> {
     let mut next = BTreeMap::<u32, u32>::new();
@@ -169,7 +186,7 @@ fn boundary_loops(
     Some(loops)
 }
 
-fn rotate_to_front(ring: &mut [u32], mesh: &SurfaceMesh, guide: Guide) {
+pub(crate) fn rotate_to_front(ring: &mut [u32], mesh: &SurfaceMesh, guide: Guide) {
     let forward = guide.front();
     let (index, _) = ring.iter().enumerate().map(|(index, &id)| {
         let p = mesh.vertices[id as usize];
@@ -197,7 +214,7 @@ fn sample(ring: &[u32], vertices: &[Vec3], fraction: f32) -> Vec3 {
     vertices[ring[0] as usize]
 }
 
-fn sample_ownership(
+pub(crate) fn sample_ownership(
     ring: &[u32], vertices: &[Vec3], labels: &[[f32; 2]],
     side: usize, fraction: f32,
 ) -> f32 {
@@ -252,7 +269,7 @@ fn project(target: &AnatomyTarget, mut p: Vec3) -> Option<Vec3> {
         .then_some(p)
 }
 
-fn support_ring(
+pub(crate) fn support_ring(
     mesh: &mut SurfaceMesh, torso: &[u32], arm: &[u32],
     count: usize, alpha: f32, target: &AnatomyTarget,
 ) -> Option<Vec<u32>> {
@@ -298,7 +315,7 @@ fn transition_slots(
 
 /// Winding-preserving quad zipper. Boundary sizes may differ by an even
 /// number; pairs of edges absorb the difference in the support bands.
-fn bridge(mesh: &mut SurfaceMesh, outer: &[u32], inner: &[u32], axilla: Vec3) -> Option<()> {
+pub(crate) fn bridge(mesh: &mut SurfaceMesh, outer: &[u32], inner: &[u32], axilla: Vec3) -> Option<()> {
     let (m, n) = (outer.len(), inner.len());
     if m < 4 || n < 4 || (m + n) % 2 != 0 { return None; }
     let (smaller, extras) = (m.min(n), m.abs_diff(n) / 2);
@@ -365,7 +382,7 @@ fn compact(mesh: &mut SurfaceMesh, guides: &mut Vec<[f32; 2]>) {
 /// Cutting the shoulder annulus separates the retained arm surface from the
 /// retained trunk. Flood-fill the distal side before welding the new rings;
 /// spatial proximity alone cannot distinguish the two around the armpit.
-fn distal_vertices(
+pub(crate) fn distal_vertices(
     mesh: &SurfaceMesh, selected: &[bool], arm: &[u32], torso: &[u32],
 ) -> Option<Vec<bool>> {
     let mut neighbours = vec![Vec::new(); mesh.vertices.len()];
@@ -394,7 +411,7 @@ fn distal_vertices(
         .then_some(distal)
 }
 
-fn valid_new_quads(
+pub(crate) fn valid_new_quads(
     mesh: &SurfaceMesh, start: usize, target: &AnatomyTarget,
 ) -> bool {
     for &quad in &mesh.quads[start..] {
