@@ -134,7 +134,12 @@ fn valid_quads(
             let centre = triangle.into_iter()
                 .map(|id| vertices[id as usize]).sum::<Vec3>() / 3.0;
             let outward = target.outward_normal(centre);
-            if outward.length_squared() < 0.5
+            // A hexagonal exchange can bridge a concavity at the armpit
+            // even if all outer boundary edges are reasonable. Stay close
+            // to the anatomy rather than letting the new shared diagonal
+            // cut through the underlying tissue.
+            if target.field(centre).abs() > 0.024 * target.scale
+                || outward.length_squared() < 0.5
                 || normal.normalize().dot(outward) < MIN_OUTWARD_ALIGNMENT
             {
                 return false;
