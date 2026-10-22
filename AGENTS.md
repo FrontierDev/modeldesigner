@@ -14,3 +14,6 @@
 - Prefer the user's manual visual slider/pose evaluations for this milestone; no substantial new regression suite requested.
 - **Do not run GitHub CI without explicit instruction.** The workflow must remain workflow_dispatch-only, with no push/PR triggers.
 - Validate local Rust builds when possible. Record honestly when the native build cannot be run.
+- Provisional rig weights are continuous, normalised, multi-bone influences: distribute trunk mass among pelvis/spine/chest and limb roots according to anatomical proximity. Do not revert to the former pelvis + strongest-single-limb weighting.
+- Defect diagnostics must report stretched and compressed edges independently, identify unusually short neutral edges, and retain visibility of raw ratios and true measured edge lengths. Do not dismiss meaningful absolute deformation merely because an edge is short.
+- Continue using the same quad indices in every posed frame; changes to rig weights must not change character morphology parameters or silently create new topology.

@@ -37,3 +37,9 @@ Run cargo fmt --all -- --check, cargo check --workspace, cargo test --workspace 
 GitHub Actions remains **manual-only** and must not be triggered without approval. Native compilation and visual acceptance were not completed in this edit session.
 
 See docs/ANATOMICAL_TARGET.md, docs/CAGE_FITTING.md and docs/RIGGING_PREVIEW.md.
+
+### Rigging weight and diagnostic refinement
+
+The provisional rig now blends normalised pelvis/spine/chest and left/right limb influences (up to four per vertex), with stronger weights at each actual limb root and smoother transitions into the shoulder/chest and pelvis/thigh regions. This replaces the earlier pelvis-plus-one-limb assignment that overstretched shoulders and the groin.
+
+Rigging diagnostics distinguish stretched and compressed quad edges and show actual rest and posed lengths for the worst representative edge. Extremely short neutral edges are counted and the raw maximum ratio remains visible, so numerical outliers do not obscure meaningful deformation. The production topology, export restrictions and animation-ready status are unchanged.
