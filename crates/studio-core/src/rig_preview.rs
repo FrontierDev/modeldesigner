@@ -447,4 +447,96 @@ mod tests {
         unlabelled.shoulder_guides.pop();
         assert!(pose_fitted(&unlabelled, &recipe, DiagnosticPose::default()).is_err());
     }
+
+    #[test]
+    fn deltoid_rotates_with_shoulder_at_30_60_and_90_degrees() {
+        let recipe = Recipe::default();
+        let target = AnatomyTarget::from_recipe(&recipe).unwrap();
+        let shoulder = landmark(&target, "left_shoulder").unwrap();
+        let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
+
+        // Deltoid-cap vertices close to, but distinctly above/outside, the
+        // shoulder pivot must follow the joint. Checking only distal upper
+        // arm vertices missed the pinned-cap regression.
+        let cap = fitted.vertices.iter().enumerate()
+            .filter_map(|(i, point)| {
+                let p = Vec3::from_array(*point);
+                let r = p.distance(shoulder) / target.scale;
+                (r >= 0.045 && r <= 0.145
+                    && p.x <= shoulder.x - 0.02 * target.scale
+                    && p.y >= shoulder.y - 0.035 * target.scale)
+                    .then_some(i)
+            }).collect::<Vec<_>>();
+        assert!(cap.len() >= 8, "Expected a sampled deltoid cap");
+
+        let joints = make_skeleton(&target).unwrap();
+        let mut previous_displacement = 0.0;
+        for angle in [30.0, 60.0, 90.0] {
+            let pose = DiagnosticPose {
+                left_arm: JointAngles { outward: angle, forward: 0.0 },
+                ..DiagnosticPose::default()
+            };
+            let preview = pose_fitted(&fitted, &recipe, pose).unwrap();
+            assert_eq!(preview.report.collapsed_faces, 0);
+            if angle <= 60.0 {
+                assert!(preview.report.inverted_faces <= 12
+                    && preview.report.strained_edges <= 32,
+                    "Excessive shoulder defects at {angle}°: {} inverted, {} strained",
+                    preview.report.inverted_faces, preview.report.strained_edges);
+            }
+            let matrices = skinning::evaluate_joints(&joints, &local_rotations(pose)).unwrap();
+            let (mut motion, mut rigid_motion, mut influence) = (0.0, 0.0, 0.0);
+            for &i in &cap {
+                let p = Vec3::from_array(fitted.vertices[i]);
+                let moved = Vec3::from_array(preview.model.vertices[i]);
+                motion += p.distance(moved);
+                rigid_motion += p.distance(matrices.skin[4].transform_point3(p));
+                influence += preview.model.influences[i].joint_indices.iter()
+                    .zip(&preview.model.influences[i].weights)
+                    .filter(|(bone, _)| **bone == 4)
+                    .map(|(_, weight)| *weight).sum::<f32>();
+            }
+            let mean_motion = motion / cap.len() as f32;
+            let ratio = motion / rigid_motion;
+            let mean_influence = influence / cap.len() as f32;
+            assert!(ratio > 0.60 && mean_influence > 0.60,
+                "Deltoid stayed pinned at {angle}°: motion ratio {ratio:.2}, shoulder weight {mean_influence:.2}");
+            assert!(mean_motion > previous_displacement,
+                "Deltoid did not advance with the raised shoulder at {angle}°");
+            previous_displacement = mean_motion;
+        }
+    }
+
+    #[test]
+    fn shoulder_flexion_rotates_deltoid_without_moving_other_arm() {
+        let recipe = Recipe::default();
+        let target = AnatomyTarget::from_recipe(&recipe).unwrap();
+        let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
+        let left = landmark(&target, "left_shoulder").unwrap();
+        let right = landmark(&target, "right_shoulder").unwrap();
+        let caps = [left, right].map(|pivot| fitted.vertices.iter()
+            .enumerate().filter_map(|(i, point)| {
+                let p = Vec3::from_array(*point);
+                let r = p.distance(pivot) / target.scale;
+                (r >= 0.045 && r <= 0.145
+                    && p.x.abs() >= pivot.x.abs() + 0.02 * target.scale
+                    && p.y >= pivot.y - 0.035 * target.scale)
+                    .then_some(i)
+            }).collect::<Vec<_>>());
+        assert!(caps.iter().all(|cap| cap.len() >= 8));
+        for angle in [30.0, 60.0] {
+            let posed = pose_fitted(&fitted, &recipe, DiagnosticPose {
+                left_arm: JointAngles { outward: 0.0, forward: angle },
+                ..DiagnosticPose::default()
+            }).unwrap();
+            let mean_motion = |side: usize| caps[side].iter().map(|&i| {
+                Vec3::from_array(fitted.vertices[i])
+                    .distance(Vec3::from_array(posed.model.vertices[i]))
+            }).sum::<f32>() / caps[side].len() as f32;
+            assert!(mean_motion(0) > 0.015,
+                "Left deltoid stayed pinned during {angle}° forward flexion");
+            assert!(mean_motion(1) < 1.0e-5,
+                "Right shoulder moved when only the left arm flexed");
+        }
+    }
 }
