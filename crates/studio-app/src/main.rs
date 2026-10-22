@@ -738,12 +738,21 @@ impl eframe::App for StudioApp {
                 if changed { self.update_rig_pose(); }
                 if let Some(report) = &self.deformation {
                     ui.label(format!(
-                        "Deformation: {} inverted faces | {} collapsed | {} strained edges | max edge ratio {:.2} | displacement {:.1} cm",
-                        report.inverted_faces, report.collapsed_faces, report.strained_edges,
-                        report.worst_edge_stretch, report.largest_vertex_displacement * 100.0
+                        "Deformation: {} inverted | {} collapsed | {} stretched / {} compressed edges | displacement {:.1} cm",
+                        report.inverted_faces, report.collapsed_faces,
+                        report.stretched_edges, report.compressed_edges,
+                        report.largest_vertex_displacement * 100.0
+                    ));
+                    ui.label(format!(
+                        "Worst representative edge {:.2}x ({:.1} → {:.1} mm) | short bind edges {} | unfiltered worst {:.2}x",
+                        report.worst_edge_stretch,
+                        report.worst_reference_length * 1000.0,
+                        report.worst_posed_length * 1000.0,
+                        report.short_reference_edges,
+                        report.worst_raw_edge_ratio
                     ));
                 }
-                ui.label("Red markers flag excessive stretch or flipped triangles; this is not validated animation skinning");
+                ui.label("Red markers: inverted/collapsed faces or meaningful edge strain. Short bind edges are reported separately.");
             } else if self.preview_kind == PreviewKind::FittedCage {
                 ui.horizontal(|ui| {
                     ui.label("Surface fit");
