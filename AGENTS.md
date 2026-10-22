@@ -17,3 +17,16 @@
 - Provisional rig weights are continuous, normalised, multi-bone influences: distribute trunk mass among pelvis/spine/chest and limb roots according to anatomical proximity. Do not revert to the former pelvis + strongest-single-limb weighting.
 - Defect diagnostics must report stretched and compressed edges independently, identify unusually short neutral edges, and retain visibility of raw ratios and true measured edge lengths. Do not dismiss meaningful absolute deformation merely because an edge is short.
 - Continue using the same quad indices in every posed frame; changes to rig weights must not change character morphology parameters or silently create new topology.
+- `shoulder_patch.rs` is the first neutral-only topological stage. It must
+  change actual quad connectivity (two-quad six-sided boundary rewrites),
+  not merely reposition vertices. Keep accepted edits constrained by
+  anatomical landmarks, outgoing SDF normals, face area, field proximity,
+  valence penalty and reasonable quad proportions.
+- Perform shoulder connectivity refinement only when building the cached
+  **neutral** template, prior to `quad_flow`. After editing face indices,
+  update both triangles associated with each quad and validate closed,
+  oriented topology. Never rewire for live morphology or pose sliders.
+- Do not claim the current local rewire pass creates complete concentric
+  shoulder loops or animation-validated skinning. If patch rewires are
+  blocked, surface the accepted count rather than substituting unsafe
+  topology or removing checks.
