@@ -7,7 +7,8 @@
 
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::SurfaceMesh;
-use crate::quad_template::neutral_template;
+use crate::quad_flow::FlowReport;
+use crate::quad_template::{neutral_flow_report, neutral_template};
 use crate::{Model, Recipe};
 use glam::Vec3;
 
@@ -45,6 +46,7 @@ pub struct FitReport {
     pub surface_mean_error: f32,
     pub surface_maximum_error: f32,
     pub maximum_displacement: f32,
+    pub neutral_flow: FlowReport,
 }
 
 #[derive(Clone, Debug)]
@@ -276,6 +278,7 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
             surface_mean_error,
             surface_maximum_error,
             maximum_displacement: displacement,
+            neutral_flow: *neutral_flow_report()?,
         },
     })
 }

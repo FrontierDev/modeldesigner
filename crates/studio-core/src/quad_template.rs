@@ -11,6 +11,7 @@
 
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::{MeshBuilder, SurfaceMesh};
+use crate::quad_flow::{optimize, FlowReport};
 use crate::{Model, Recipe};
 use glam::Vec3;
 use std::sync::OnceLock;
@@ -112,7 +113,7 @@ fn active_cell_vertex(grid: &Grid, x: usize, y: usize, z: usize) -> Option<Vec3>
     if count == 0 { None } else { Some(sum / count as f32) }
 }
 
-fn make_template() -> Result<Model, String> {
+fn make_template() -> Result<NeutralTemplate, String> {
     let neutral = AnatomyTarget::from_recipe(&Recipe::default())?;
     let grid = Grid::new(&neutral)?;
     let cells = [grid.nodes[0] - 1, grid.nodes[1] - 1, grid.nodes[2] - 1];
@@ -185,7 +186,7 @@ fn make_template() -> Result<Model, String> {
         }
     }
 
-    let mesh: SurfaceMesh = builder.build()?;
+    let mut mesh: SurfaceMesh = builder.build()?;
     if mesh.quads.len() <= 656 {
         return Err(format!(
             "Automatic neutral cage is unexpectedly sparse ({} quads)",
@@ -215,7 +216,10 @@ fn make_template() -> Result<Model, String> {
     if seen.iter().any(|&visited| !visited) {
         return Err("Automatic neutral cage contains disconnected components".into());
     }
-    Ok(Model {
+    // Optimize the neutral archetype ONCE. Connectivity remains exactly the
+    // surface-net connectivity for every player slider and every fit.
+    let flow_report = optimize(&mut mesh, &neutral)?;
+    let model = Model {
         vertices: mesh.vertices.iter().map(|p| p.to_array()).collect(),
         normals: mesh.normals(),
         quads: mesh.quads,
@@ -223,10 +227,16 @@ fn make_template() -> Result<Model, String> {
         caps: mesh.caps,
         joints: Vec::new(),
         influences: Vec::new(),
-    })
+    };
+    Ok(NeutralTemplate { model, flow_report })
 }
 
-static NEUTRAL_TEMPLATE: OnceLock<Result<Model, String>> = OnceLock::new();
+struct NeutralTemplate {
+    model: Model,
+    flow_report: FlowReport,
+}
+
+static NEUTRAL_TEMPLATE: OnceLock<Result<NeutralTemplate, String>> = OnceLock::new();
 
 /// Constant quad connectivity for this humanoid archetype. Never resample
 /// this grid for player slider updates; only fit vertex positions afterward.
@@ -234,5 +244,16 @@ pub fn neutral_template() -> Result<&'static Model, String> {
     NEUTRAL_TEMPLATE
         .get_or_init(make_template)
         .as_ref()
+        .map(|template| &template.model)
+        .map_err(Clone::clone)
+}
+
+/// Diagnostic metrics for neutral vertex redistribution and pole distribution.
+/// The template is always cached and independent of runtime slider changes.
+pub fn neutral_flow_report() -> Result<&'static FlowReport, String> {
+    NEUTRAL_TEMPLATE
+        .get_or_init(make_template)
+        .as_ref()
+        .map(|template| &template.flow_report)
         .map_err(Clone::clone)
 }

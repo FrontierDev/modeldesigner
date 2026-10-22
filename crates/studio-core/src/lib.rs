@@ -10,6 +10,7 @@ use std::fmt::Write as _;
 pub mod anatomy;
 pub mod cage;
 pub mod quad_template;
+mod quad_flow;
 mod torso_target;
 pub mod controls;
 pub mod mesh;
