@@ -8,7 +8,7 @@ use crate::anatomy::AnatomyTarget;
 use crate::mesh::SurfaceMesh;
 use crate::skinning;
 use crate::{Joint, Model, Recipe, VertexInfluence};
-use glam::{Quat, Vec3};
+use glam::{Mat4, Quat, Vec3};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -165,7 +165,8 @@ fn local_rotations(pose: DiagnosticPose) -> Vec<Quat> {
 /// Measures reference-to-pose face inversion and gross stretch, without
 /// suppressing defects: displaying deformation failures is the goal.
 fn analyze(reference: &[Vec3], posed: &[Vec3], triangles: &[[u32; 3]],
-    quads: &[[u32; 4]]) -> (DeformationReport, Vec<u32>)
+    quads: &[[u32; 4]], influences: &[VertexInfluence], skin: &[Mat4])
+    -> (DeformationReport, Vec<u32>)
 {
     let mut report = DeformationReport::default();
     let mut defects = BTreeSet::<u32>::new();
@@ -175,10 +176,26 @@ fn analyze(reference: &[Vec3], posed: &[Vec3], triangles: &[[u32; 3]],
             .cross(reference[indices[2]] - reference[indices[0]]);
         let current = (posed[indices[1]] - posed[indices[0]])
             .cross(posed[indices[2]] - posed[indices[0]]);
-        if current.length_squared() < 1.0e-10 * original.length_squared() {
+        // Compare against the *skinned* expected normal, not the unposed
+        // world-space normal. A correctly rotated arm can turn well beyond
+        // 90 degrees without its faces flipping in their local coordinates.
+        let mut expected = Vec3::ZERO;
+        let rest_normal = original.normalize_or_zero();
+        for &id in &indices {
+            let weight = &influences[id];
+            for (&joint, &amount) in weight.joint_indices.iter().zip(&weight.weights) {
+                if amount > 0.0 {
+                    expected += skin[joint as usize].transform_vector3(rest_normal)
+                        * (amount / 3.0);
+                }
+            }
+        }
+        if current.length_squared() < 0.0025 * original.length_squared() {
             report.collapsed_faces += 1;
             defects.extend([a,b,c]);
-        } else if original.dot(current) <= 0.0 {
+        } else if expected.length_squared() > 1.0e-8
+            && current.dot(expected) <= 0.0
+        {
             report.inverted_faces += 1;
             defects.extend([a,b,c]);
         }
@@ -225,7 +242,8 @@ pub fn pose_fitted(
     let positions = skinning::deform(&neutral_vertices, &skin_weights, &matrices.skin)?;
     let posed_joints = skinning::posed_joints(&rest_joints, &matrices)?;
     let (report, defect_vertices) = analyze(
-        &neutral_vertices, &positions, &fitted.triangles, &fitted.quads
+        &neutral_vertices, &positions, &fitted.triangles, &fitted.quads,
+        &skin_weights, &matrices.skin
     );
     let surface = SurfaceMesh {
         vertices: positions,
