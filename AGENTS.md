@@ -86,3 +86,10 @@
 - The **Poles** overlay and neutral quad quality metrics are diagnostic, not
   evidence of validated skinning. Rig/OBJ export for the auto quad cage remains
   disabled until separate animation validation.
+- Fitting player morphology must not be globally blocked by one unsafe quad:
+  `cage::fit` uses per-vertex incident-face/edge backtracking, plus
+  anatomical shoulder–elbow and hip–knee landmark transport.
+- Fit strength 1 targets full requested anatomy; fit strength 0 preserves
+  the neutral cage. Preserve the stable `OnceLock` topology across all
+  slider combinations. Reject unsafe **local** displacements without
+  silently rebuilding topology or relaxing face-inversion constraints.

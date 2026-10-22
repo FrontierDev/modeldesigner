@@ -145,3 +145,40 @@ shoulders and thigh roots at neutral and high body-mass/girth settings.
 Check actual before/after alignment numbers rather than assuming the
 optimizer always accepts steps. No extra automated regression tests were
 added and GitHub CI remains manual-only.
+## Morphology response improvement
+
+**Problem:** the old `cage::fit` attempted to move every vertex in one
+candidate, then validated the entire mesh. The smallest problematic
+groin/shoulder face therefore limited the motion of the entire cage,
+particularly for combined broad-chest and narrow-shoulder settings.
+
+**Revised fitting stages:**
+
+1. Scale the cached neutral template by overall height; do not regenerate
+   its connectivity.
+2. Compare the neutral and current anatomical shoulder, elbow, hip and knee
+   landmarks. Transport nearby cage regions smoothly in eight bounded
+   increments, respecting incident face and edge safety.
+3. Apply up to 28 local signed-field projection/fairing passes. For each
+   vertex, project toward the selected blend of neutral and current anatomy.
+4. Attempt each vertex movement independently with decreasing step sizes.
+   Reject only that vertex's movement when its incident triangles invert,
+   become degenerate, or quad edges exceed conservative length ratios.
+5. Validate the resulting closed oriented mesh and expose actual residuals
+   and the total number of vertices moved.
+
+`Surface fit` now defaults to **100%**, so the requested morphology is the
+actual projection target. Moving it towards zero interpolates the implicit
+target towards neutral. Local movement limits are safety mechanisms rather
+than artificial restrictions on the entire body's morph response.
+
+These changes do **not** replace the source neutral quad template, alter
+topological valence, introduce new presets or produce a rigged output.
+Manual inspection should include neutral anatomy versus cage and the user
+scenario with shoulder width 40 cm and chest width 125%, viewing
+front, side and wireframe. If a region remains frozen, inspect movement
+counts and field residuals before changing the quad topology.
+
+No extra regression tests were added at the user's earlier request.
+Native Rust build/visual validation has not yet been executed in this
+environment. GitHub CI was not triggered.

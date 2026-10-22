@@ -139,3 +139,29 @@ and minimum corner angle.
 connectivity or pole locations. It does not yet construct animation-quality
 deltoid, shoulder or hip edge loops, and the cage remains unrigged and
 non-exportable.
+
+### Morphology-responsive local cage fitting
+
+The first automatic-cage shrink-wrap used **global backtracking**: one
+inverted or stretched face could reduce or reject the motion of every vertex
+in a pass. This caused the fitted cage to under-respond to larger changes
+such as **40 cm shoulder width + 125% chest width**.
+
+The fitter now:
+
+- transports the neutral arm and thigh vertices using the corresponding
+  shoulder–elbow and hip–knee landmarks before surface projection;
+- fits each vertex independently to the anatomy using the implicit-field
+  gradient, with bounded tangential fairing;
+- verifies each candidate against only its incident triangle normals,
+  triangle areas and quad-edge lengths, using local backtracking instead
+  of globally stopping the entire fitting pass;
+- interpolates between neutral and requested anatomy with the **Surface fit**
+  control (0 = neutral, 1 = full requested morphology); its default is now 1;
+- reports how many vertices moved, in addition to the residual field error.
+
+No topology indices, UVs, skin weights or quad connectivity are regenerated
+by a slider. The geometry remains an experimental, unrigged preview. Some
+vertices may still be individually blocked by topology/face constraints,
+which should be investigated using the residual-error diagnostics rather
+than by disabling safety validation.
