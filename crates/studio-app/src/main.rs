@@ -608,6 +608,27 @@ impl StudioApp {
     }
 }
 
+/// Unsaved independent joint pose controls, used only for deformation tests.
+fn rig_pose_row(
+    ui: &mut egui::Ui, label: &str,
+    angles: &mut studio_core::rig_preview::JointAngles,
+    outward_max: f32, forward_max: f32,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        changed |= ui.add(
+            egui::Slider::new(&mut angles.outward, 0.0..=outward_max)
+                .text("Outward").suffix("°").fixed_decimals(0)
+        ).changed();
+        changed |= ui.add(
+            egui::Slider::new(&mut angles.forward, -20.0..=forward_max)
+                .text("Forward").suffix("°").fixed_decimals(0)
+        ).changed();
+    });
+    changed
+}
+
 /// Keep the editor controls aligned with the future in-game build sliders.
 fn build_slider(ui: &mut egui::Ui, recipe: &mut Recipe, control: BuildControl) -> bool {
     ui.label(control.label).on_hover_text(control.description());
@@ -678,101 +699,106 @@ impl eframe::App for StudioApp {
             ui.horizontal(|ui| {
                 ui.label("Preview");
                 ui.separator();
-                let changed = ui.selectable_value(&mut self.preview_kind, PreviewKind::Anatomy, "Anatomy target").changed()
-                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::FittedCage, "Auto quad cage").changed()
-                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::Topology, "Topology").changed();
+                let changed =
+                    ui.selectable_value(&mut self.preview_kind, PreviewKind::Anatomy, "Anatomy target").changed()
+                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::FittedCage, "Fitted cage").changed()
+                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::Rigging, "Rigging").changed();
                 if changed {
-                    self.camera = if self.preview_kind != PreviewKind::Topology {
-                        Camera::for_anatomy(self.recipe.height)
-                    } else { Camera::framed(self.recipe.height) };
+                    self.camera = Camera::for_anatomy(self.recipe.height);
                     self.regenerate();
                 }
                 ui.checkbox(&mut self.wireframe, "Wireframe");
-                if self.preview_kind != PreviewKind::Topology {
+                if self.preview_kind != PreviewKind::Rigging {
                     ui.checkbox(&mut self.show_landmarks, "Landmarks");
-                }
-                if self.preview_kind == PreviewKind::Topology {
+                } else {
                     ui.checkbox(&mut self.show_skeleton, "Skeleton");
+                    ui.checkbox(&mut self.show_defects, "Defects");
                 }
-                if self.preview_kind == PreviewKind::FittedCage {
+                if self.preview_kind != PreviewKind::Anatomy {
                     ui.checkbox(&mut self.show_poles, "Poles");
                 }
                 if ui.button("Reset view").clicked() {
-                    self.camera = if self.preview_kind != PreviewKind::Topology {
-                        Camera::for_anatomy(self.recipe.height)
-                    } else { Camera::framed(self.recipe.height) };
+                    self.camera = Camera::for_anatomy(self.recipe.height);
                 }
             });
-            if self.preview_kind == PreviewKind::Topology {
-            let mut pose_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Left arm");
-                pose_changed |= ui.add(
-                    egui::Slider::new(&mut self.pose.left.raise_deg, 0.0..=70.0)
-                        .text("Raise").suffix("°").fixed_decimals(0)
-                ).changed();
-                pose_changed |= ui.add(
-                    egui::Slider::new(&mut self.pose.left.forward_deg, 0.0..=55.0)
-                        .text("Forward").suffix("°").fixed_decimals(0)
-                ).changed();
-            });
-            ui.horizontal(|ui| {
-                ui.label("Right arm");
-                pose_changed |= ui.add(
-                    egui::Slider::new(&mut self.pose.right.raise_deg, 0.0..=70.0)
-                        .text("Raise").suffix("°").fixed_decimals(0)
-                ).changed();
-                pose_changed |= ui.add(
-                    egui::Slider::new(&mut self.pose.right.forward_deg, 0.0..=55.0)
-                        .text("Forward").suffix("°").fixed_decimals(0)
-                ).changed();
-                if ui.button("Reset pose").clicked() {
-                    self.pose = PreviewPose::default();
-                    pose_changed = true;
+
+            if self.preview_kind == PreviewKind::Rigging {
+                let mut changed = false;
+                changed |= rig_pose_row(ui, "Left arm", &mut self.pose.left_arm, 100.0, 90.0);
+                changed |= rig_pose_row(ui, "Right arm", &mut self.pose.right_arm, 100.0, 90.0);
+                changed |= rig_pose_row(ui, "Left leg", &mut self.pose.left_leg, 55.0, 85.0);
+                changed |= rig_pose_row(ui, "Right leg", &mut self.pose.right_leg, 55.0, 85.0);
+                ui.horizontal(|ui| {
+                    if ui.button("Reset pose").clicked() {
+                        self.pose = DiagnosticPose::default();
+                        changed = true;
+                    }
+                    ui.label("Provisional LBS • independently rotate shoulders and hips");
+                });
+                if changed { self.update_rig_pose(); }
+                if let Some(report) = &self.deformation {
+                    ui.label(format!(
+                        "Deformation: {} inverted faces | {} collapsed | {} strained edges | max edge ratio {:.2} | displacement {:.1} cm",
+                        report.inverted_faces, report.collapsed_faces, report.strained_edges,
+                        report.worst_edge_stretch, report.largest_vertex_displacement * 100.0
+                    ));
                 }
-            });
-            if pose_changed { self.regenerate(); }
+                ui.label("Red markers flag excessive stretch or flipped triangles; this is not validated animation skinning");
             } else if self.preview_kind == PreviewKind::FittedCage {
                 ui.horizontal(|ui| {
                     ui.label("Surface fit");
-                    if ui.add(egui::Slider::new(&mut self.fit_strength,0.0..=1.0)).changed() { self.regenerate(); }
+                    if ui.add(egui::Slider::new(&mut self.fit_strength,0.0..=1.0)).changed() {
+                        self.regenerate();
+                    }
                     if let Some(report) = &self.fit_report {
-                        ui.label(format!("Vertex {:.1} → {:.1} mm | surface {:.1} mm (max {:.1}) | {} passes | moved {}",
+                        ui.label(format!(
+                            "Vertex {:.1} → {:.1} mm | surface {:.1} mm (max {:.1}) | {} passes | moved {}",
                             report.initial_mean_error * 1000.0, report.mean_error * 1000.0,
                             report.surface_mean_error * 1000.0,
-                            report.surface_maximum_error * 1000.0, report.iterations,
-                            report.moved_vertices));
+                            report.surface_maximum_error * 1000.0,
+                            report.iterations, report.moved_vertices
+                        ));
                     }
                 });
                 if let Some(report) = &self.fit_report {
                     let neutral = report.neutral_flow;
                     ui.label(format!(
-                        "Neutral edge alignment {:.3} → {:.3} ({} steps) | irregular poles {} | max edge aspect {:.2} | min corner {:.0}°",
+                        "Neutral alignment {:.3} → {:.3} | irregular poles {} | max aspect {:.2} | min angle {:.0}°",
                         neutral.directional_error_before, neutral.directional_error_after,
-                        neutral.accepted_passes, neutral.extraordinary_vertices,
-                        neutral.maximum_quad_aspect, neutral.minimum_corner_angle_degrees
+                        neutral.extraordinary_vertices, neutral.maximum_quad_aspect,
+                        neutral.minimum_corner_angle_degrees
                     ));
                 }
-                ui.label("Anatomical landmark morph + local shrink-wrap • fixed topology • not rigged");
+                ui.label("Anatomy-fitted quad cage • fixed topology across morphology changes");
             } else {
-                ui.label("Torso + pelvis + upper arms/thighs • anatomical surface target • not rigged");
+                ui.label("Continuous anatomical surface target • no fixed quad topology");
             }
+
             ui.add_space(6.0);
             let selected = match self.preview_kind {
                 PreviewKind::Anatomy => self.anatomy_preview.as_ref(),
                 PreviewKind::FittedCage => self.fitted_cage.as_ref(),
-                PreviewKind::Topology => self.model.as_ref(),
+                PreviewKind::Rigging => self.rigged_preview.as_ref(),
             };
             if let Some(model) = selected {
-                preview(ui, model, &self.recipe, &mut self.camera, self.wireframe,
-                    self.show_skeleton && self.preview_kind == PreviewKind::Topology,
+                let rigging = self.preview_kind == PreviewKind::Rigging;
+                preview(
+                    ui, model, &self.recipe, &mut self.camera, self.wireframe,
+                    rigging && self.show_skeleton,
                     self.preview_kind == PreviewKind::Anatomy,
-                    if self.preview_kind != PreviewKind::Topology && self.show_landmarks {
+                    if !rigging && self.show_landmarks {
                         &self.anatomy_landmarks
                     } else { &[] },
-                    self.preview_kind == PreviewKind::FittedCage && self.show_poles);
+                    self.preview_kind != PreviewKind::Anatomy && self.show_poles,
+                    rigging,
+                    if rigging && self.show_defects {
+                        &self.defect_vertices
+                    } else { &[] },
+                );
             } else {
-                ui.centered_and_justified(|ui| { ui.label("No valid surface to preview"); });
+                ui.centered_and_justified(|ui| {
+                    ui.label("No valid surface to preview");
+                });
             }
         });
     }
