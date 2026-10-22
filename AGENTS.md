@@ -62,3 +62,16 @@
   ratios and large movements around the crotch and axillary junctions.
   Its output must remain explicitly **unrigged and non-exportable** until
   anatomical correspondence and skin weighting are validated.
+
+- The **Auto quad cage** must use the neutral, anatomy-derived surface-net
+  template from `quad_template.rs`, never `study::build()`, as source
+  connectivity. Build it once with default morphology and cache it;
+  character sliders alter vertex positions **only**.
+- Neutral surface-net extraction must fail if the closed anatomical target
+  intersects grid bounds or yields non-manifold, inverted or disconnected
+  topology. Never silently substitute the historical 656-quad cage.
+- Surface nets are a temporary **automatic quadrangulation baseline**,
+  not anatomically directed deformation loops. Future neutral topology
+  refinement should use skeletal landmarks and directions without changing
+  the index map during runtime morphing. Unrigged preview output remains
+  deliberately non-exportable.

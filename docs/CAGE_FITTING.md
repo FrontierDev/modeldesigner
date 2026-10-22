@@ -1,62 +1,101 @@
-# First-stage fixed-topology anatomical cage fitting
+# Anatomy-derived quad cage — first automatic quadrangulation pass
 
-## Scope
+## What changed
 
-A preliminary cage fitter already existed in `crates/studio-core/src/cage.rs`
-when this pass began. It was wired to the **Fitted cage** editor view.
-This implementation retains that separation and strengthens the existing
-algorithm's anatomical and geometric constraints.
+The older cage fitter was using the 720-vertex/656-quad **legacy topology**
+as its starting mesh, despite that topology's established defects. That
+source has been replaced.
 
-The starting cage uses the older quad study's connectivity. It is **not yet**
-an independently authored ideal full-body topology template. Fitting can
-change vertex positions only; face counts, vertex ordering, quads and
-triangles remain stable across slider combinations.
+`studio-core/src/quad_template.rs` builds an entirely new neutral all-quad
+surface from the signed-distance field returned by `AnatomyTarget`. The
+neutral topology is cached in a `OnceLock` and is reused for all subsequent
+morphology changes. No player slider regenerates the quad connectivity.
 
-## Method
+The user can compare three viewport modes:
 
-For each iteration:
+- **Anatomy target:** temporary marching-tetrahedra triangle preview.
+- **Auto quad cage:** new anatomy-derived, fixed-index quad mesh after fitting.
+- **Topology:** the previous legacy quad study, kept for comparison.
 
-1. Evaluate signed distance and outward gradient of the anatomical target
-   at the current cage vertex.
-2. Propose a bounded displacement along the negative signed-distance gradient.
-3. Compute a tangential quad-neighbourhood fairing correction.
-4. Attenuate candidate movements around the **crotch bridge** and
-   **axillary/shoulder sockets**, the least tolerant regions of the seed.
-5. Use global backtracking to reject the step when a face collapses,
-   flips relative to the original cage, or quad edges undergo excessive
-   compression or extension.
-6. Stop at the current valid fit if further improvements would break those
-   constraints; do not silently remesh or apply fallback geometry.
+Only the legacy topology view retains its historical OBJ/rig export. The
+new automatic quad cage has **no verified rig, skin weights or UVs** and cannot
+be exported as production character geometry.
 
-The deformation is bounded relative to the original cage, and
-`FitReport` provides initial and final mean absolute signed-field errors,
-maximum error, movement and accepted iterations.
+## Surface-net extraction
 
-## Preview
+- Sample the neutral SDF once on an approximately 25 mm cubic grid.
+- Require positive field values on the entire grid boundary (surface must
+  be completely inside; fail explicitly on clipping).
+- For each cell with a sign transition, place one vertex at the mean of its
+  crossing-edge intersection positions.
+- For each sign-changing *grid edge*, connect its four neighboring cell
+  vertices as a consistently oriented quad.
+- Reuse the neutral quad indices and render-triangle split exactly for every
+  subsequent character.
+- Validate closure, oriented edge pairing, face areas and single-component
+  connectivity before publishing the template.
+- Never substitute the old 656-quad mesh as a fallback if extraction fails.
 
-The editor provides **Anatomy target**, **Fitted cage**, and **Topology** modes.
-The Fitted cage mode exposes a `Surface fit` strength slider and supports
-wireframe/landmark inspection. It does not carry validated skin weights,
-UVs or an exportable rig. The legacy topology preview and export path remain
-separate.
+This is a **dual-grid/surface-net quadrangulation**, not a robust field-aligned
+QuadriFlow/Instant-Meshes-style solution. Its edges reflect grid directions
+rather than ideal deltoid, axillary, inguinal and knee loops.
 
-## Limitations and acceptance
+## Shrink-wrap fitting
 
-A good distance-field fit alone does not guarantee correct groin, shoulder or
-joint edge flow. The seed cage still contains legacy anatomical layout issues.
-This stage should be assessed visually in wireframe at neutral proportions and
-at extreme build settings. The next milestone is to improve correspondence
-and vertex distribution in troublesome anatomical regions, not to hide
-foldovers with smoothing or dynamic topology.
+`cage::fit` now obtains `neutral_template()?.clone()` rather than calling
+the legacy `generate(recipe)` function. Initial vertices scale with overall
+height and then move towards the current recipe's anatomical SDF. Signed
+distance and surface gradients drive projection, with conservative
+tangential smoothing.
 
-No new automated regression tests were added for this step at the user's
-request. Rust build and runtime execution were not available here.
-GitHub Actions remains **manual-only** and was not triggered.
+The fit protects the crotch and shoulder-armpit junction from excessive
+movement. It checks face inversion, triangle areas and quad-edge distortion,
+and backs off movements that break those constraints. It reports:
 
-Local commands:
+- Initial and final **vertex-to-field** mean absolute error.
+- Maximum vertex error.
+- Mean and maximum **triangle-centroid-to-field** absolute error.
+- Accepted iterations and maximum vertex displacement.
+
+These residuals are diagnostic field distances, not full bidirectional
+Hausdorff-distance or animation-deformation guarantees.
+
+## Important limitations
+
+- All-quad topology is now **independent of the former flawed cage**, but
+  does not yet follow anatomical feature lines.
+- There are no guarantees of ideal pole placement or skeletal edge-loop flow
+  around shoulders, pelvis and crotch.
+- Region-aware meshing/quad alignment, UVs and final skinning remain future
+  phases, along with surface-to-surface error and foldover evaluation under
+  extreme slider values.
+- Fitting a neutral template to substantially different body proportions can
+  still distort some quads. Repeated runtime remeshing would violate the
+  project's stable-topology requirement, so this should be solved with
+  better neutral topology and constrained morphology fitting, not by changing
+  face connectivity on slider input.
+
+## Verification status
+
+An independent local Python implementation of the same surface-net edge
+ordering was exercised on a closed implicit sphere. It produced **2,528
+vertices, 2,526 quads and 5,052 triangles**, with every edge occurring twice
+in opposite directions, positive face orientation and no degenerate
+triangles. This verifies that specific prototype, **not the Rust humanoid
+implementation**.
+
+Rust compilation and application preview have not yet been verified. No
+GitHub Actions workflows were started; CI is manual-only. No new regression
+suite was added in response to the user's preference for visual inspection.
+
+Run locally:
 
 ```powershell
 git pull --ff-only origin main
 cargo check --workspace
 cargo run -p modeldesigner --release
 ```
+
+In **Auto quad cage**, enable Wireframe and compare quad counts, silhouette
+and reported vertex/surface residuals against Anatomy target and legacy
+Topology, both at default and broad-shoulder/high-thigh-girth settings.
