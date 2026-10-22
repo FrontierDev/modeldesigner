@@ -85,3 +85,27 @@ Six existing parameters are activated: hip width, pelvis tilt, glute volume, thi
 ### Anatomical torso refinement
 
 The target now uses shared-tangent cubic interpolation rather than per-band smoothstep. Upper chest breadth and shoulder placement are geometrically coupled, with deltoid shape integrated into a tapered upper arm rather than a separate sphere. Lower-abdominal tissue responds to waist width and depth, and the pelvis/iliac blend has been softened. No new sliders or topology changes were introduced; inspect the resulting appearance in **Anatomy target** mode.
+
+
+## Experimental quad-cage fitting
+
+The viewport now provides **Anatomy target**, **Fitted cage**, and **Topology** modes.
+The fitter in `studio-core/src/cage.rs` starts from the existing indexed quad
+study and moves only its vertex positions toward the continuous anatomical
+field. It combines bounded signed-field projection with tangential quad-graph
+fairing, adaptive backtracking and per-face inversion checks.
+
+Fitting is deliberately restricted at the **crotch** and **axilla**, where the
+seed topology is most vulnerable to folded loops. It also limits quad edge
+stretch and compression relative to the unfitted cage, preserving the
+original vertex and face indices. The UI exposes fit strength and numerical
+surface-error diagnostics in the Fitted cage preview.
+
+**This is an experimental first-stage cage fitter**, not an automatic
+production retopology solution. Because the starting topology comes from the
+older study, its edge layout may not yet correctly describe all anatomical
+regions. The fitted output is unrigged and cannot be exported as a final
+character. Inspect its wireframe and compare it against the anatomical
+target before deciding where the template needs to be redesigned.
+
+GitHub CI remains manual-only.

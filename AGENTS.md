@@ -56,3 +56,9 @@
 - For torso target sections, use shared, shape-preserving cubic derivatives at every adjacent section. Do not reintroduce per-segment smoothstep with zero tangents at intermediate knots.
 - Couple the upper ribcage envelope and shoulder placement sufficiently to support wide-chest/narrow-shoulder combinations; do not represent the deltoid as a separately unioned sphere.
 - Lower-abdominal target dimensions should respect both waist and hip morphology; iliac volumes must not create an abrupt shelf at the waist.
+
+- The experimental fitter in `cage.rs` must preserve indexed quads,
+  render triangles and caps. Prevent face inversion, extreme edge-length
+  ratios and large movements around the crotch and axillary junctions.
+  Its output must remain explicitly **unrigged and non-exportable** until
+  anatomical correspondence and skin weighting are validated.
