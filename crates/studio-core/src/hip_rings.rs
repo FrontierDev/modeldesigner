@@ -255,3 +255,23 @@ pub(crate) fn apply(
     }, hip_labels))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn neutral_template_has_closed_bilateral_hip_loops() {
+        let model = crate::quad_template::neutral_template().unwrap();
+        let report = crate::quad_template::neutral_hip_ring_report().unwrap();
+        assert!(report.left_patch_quads > 0 && report.right_patch_quads > 0);
+        assert!(report.left_pelvis_ring >= MIN_RING && report.right_pelvis_ring >= MIN_RING);
+        assert!(report.left_thigh_ring >= MIN_RING && report.right_thigh_ring >= MIN_RING);
+        assert_eq!(model.vertices.len(), model.hip_guides.len());
+        assert_eq!(model.vertices.len(), model.shoulder_guides.len());
+        assert_eq!(model.triangles.len(), model.quads.len() * 2);
+        for side in 0..2 {
+            assert!(model.hip_guides.iter().any(|g| g[side] == 1.0));
+            assert!(model.hip_guides.iter().any(|g| (0.05..0.95).contains(&g[side])));
+        }
+    }
+}

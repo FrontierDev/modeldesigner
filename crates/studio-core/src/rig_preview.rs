@@ -531,5 +531,58 @@ mod tests {
         }
     }
 
+    #[test]
+    fn hip_patches_deform_at_moderate_abduction_and_flexion() {
+        let recipe = Recipe::default();
+        let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
+        assert_eq!(fitted.hip_guides,
+            crate::quad_template::neutral_template().unwrap().hip_guides);
+        for (label, pose, max_inverted, max_collapsed, max_strained) in [
+            ("left outward 30", DiagnosticPose { left_leg: JointAngles { outward: 30.0, forward: 0.0 }, ..Default::default() }, 2, 0, 35),
+            ("left outward 45", DiagnosticPose { left_leg: JointAngles { outward: 45.0, forward: 0.0 }, ..Default::default() }, 2, 0, 110),
+            ("left forward 30", DiagnosticPose { left_leg: JointAngles { outward: 0.0, forward: 30.0 }, ..Default::default() }, 4, 0, 50),
+            ("left forward 60", DiagnosticPose { left_leg: JointAngles { outward: 0.0, forward: 60.0 }, ..Default::default() }, 50, 1, 180),
+            ("right outward 30", DiagnosticPose { right_leg: JointAngles { outward: 30.0, forward: 0.0 }, ..Default::default() }, 2, 0, 35),
+        ] {
+            let posed = pose_fitted(&fitted, &recipe, pose).unwrap();
+            assert_eq!(posed.model.quads, fitted.quads,
+                "Hip pose {label} modified neutral topology");
+            assert!(posed.report.inverted_faces <= max_inverted
+                && posed.report.collapsed_faces <= max_collapsed
+                && posed.report.strained_edges <= max_strained,
+                "Hip pose {label}: {} inverted, {} collapsed, {} strained",
+                posed.report.inverted_faces, posed.report.collapsed_faces,
+                posed.report.strained_edges);
+        }
+    }
 
+    #[test]
+    fn hip_guides_move_thigh_without_dragging_pelvis_or_opposite_thigh() {
+        let recipe = Recipe::default();
+        let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
+        let posed = pose_fitted(&fitted, &recipe, DiagnosticPose {
+            left_leg: JointAngles { outward: 45.0, forward: 0.0 },
+            ..Default::default()
+        }).unwrap();
+        let (mut moved_left, mut fixed_right, mut fixed_pelvis) = (0, 0, 0);
+        for (i, &ownership) in fitted.hip_guides.iter().enumerate() {
+            let distance = Vec3::from_array(fitted.vertices[i])
+                .distance(Vec3::from_array(posed.model.vertices[i]));
+            if ownership[0] == 1.0 {
+                if distance > 0.05 { moved_left += 1; }
+            } else if ownership[1] == 1.0 {
+                assert!(distance < 1.0e-5,
+                    "Unposed right thigh vertex {i} followed the left hip");
+                fixed_right += 1;
+            } else if ownership == [0.0, 0.0] {
+                assert!(distance < 1.0e-5,
+                    "Pelvis vertex {i} followed the left hip");
+                fixed_pelvis += 1;
+            }
+        }
+        assert!(moved_left > 20 && fixed_right > 20 && fixed_pelvis > 100);
+        let mut unlabelled = fitted.clone();
+        unlabelled.hip_guides.pop();
+        assert!(pose_fitted(&unlabelled, &recipe, DiagnosticPose::default()).is_err());
+    }
 }
