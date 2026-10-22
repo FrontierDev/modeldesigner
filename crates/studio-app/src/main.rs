@@ -639,7 +639,7 @@ impl eframe::App for StudioApp {
                 ui.label("Preview");
                 ui.separator();
                 let changed = ui.selectable_value(&mut self.preview_kind, PreviewKind::Anatomy, "Anatomy target").changed()
-                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::FittedCage, "Fitted cage").changed()
+                    | ui.selectable_value(&mut self.preview_kind, PreviewKind::FittedCage, "Auto quad cage").changed()
                     | ui.selectable_value(&mut self.preview_kind, PreviewKind::Topology, "Topology").changed();
                 if changed {
                     self.camera = if self.preview_kind != PreviewKind::Topology {
@@ -694,12 +694,12 @@ impl eframe::App for StudioApp {
                     ui.label("Surface fit");
                     if ui.add(egui::Slider::new(&mut self.fit_strength,0.0..=1.0)).changed() { self.regenerate(); }
                     if let Some(report) = &self.fit_report {
-                        ui.label(format!("Error {:.1} → {:.1} mm | max {:.1} mm | {} passes",
+                        ui.label(format!("Vertex error {:.1} → {:.1} mm | max {:.1} mm | {} passes",
                             report.initial_mean_error * 1000.0, report.mean_error * 1000.0,
                             report.maximum_error * 1000.0, report.iterations));
                     }
                 });
-                ui.label("Experimental quad cage • preserved connectivity • no skinning or export");
+                ui.label("New neutral anatomical quads • fixed connectivity across sliders • unrigged preview");
             } else {
                 ui.label("Torso + pelvis + upper arms/thighs • anatomical surface target • not rigged");
             }

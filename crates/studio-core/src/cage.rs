@@ -1,14 +1,14 @@
-//! First-stage constrained anatomical quad-cage fitting.
+//! Constrained fitting of the neutral anatomy-derived quad cage.
 //!
-//! The existing fixed-topology study supplies connectivity and an initial
-//! cage; the implicit anatomical target supplies the surface. This module
-//! moves VERTICES ONLY. It does not author new faces, UVs, skin weights or a
-//! valid animation rig. In particular, the legacy skin weights must never be
-//! exported as though they were fitted to the new surface.
+//! The quad_template module extracts new indexed all-quad topology ONLY ONCE
+//! from the neutral anatomical field. This fitter changes only vertex positions
+//! for subsequent morphology recipes; no old study topology is inherited.
+//! Resulting geometry has no approved UVs, skinning or production rig.
 
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::SurfaceMesh;
-use crate::{generate, Model, Recipe};
+use crate::quad_template::neutral_template;
+use crate::{Model, Recipe};
 use glam::Vec3;
 
 const ITERATIONS: usize = 18;
@@ -20,9 +20,8 @@ const MIN_FACE_ALIGNMENT: f32 = 0.035;
 const MIN_EDGE_RATIO: f32 = 0.38;
 const MAX_EDGE_RATIO: f32 = 2.65;
 
-/// Protect the few non-anatomical features in the seed quad cage from
-/// crossing the surface as fitting proceeds. The pelvis's crotch bridge
-/// and axillary junction are the most fold-prone areas of this template.
+/// Reduce tangential drift in high-curvature anatomical junctions. This is
+/// a fitting constraint, not a substitute for skeletal edge-flow alignment.
 fn fit_mobility(point: Vec3, scale: f32) -> f32 {
     let p = point / scale;
     let crotch = ((p.y - 0.65).abs() / 0.17).clamp(0.0, 1.0);
@@ -47,7 +46,7 @@ pub struct FitReport {
 
 #[derive(Clone, Debug)]
 pub struct FittedCage {
-    /// Quad topology is inherited from the study; this mesh carries no rig.
+    /// New neutral-anatomy surface-net quads; no rig or UVs.
     pub model: Model,
     pub report: FitReport,
 }
@@ -131,22 +130,25 @@ fn errors(points: &[Vec3], target: &AnatomyTarget) -> (f32,f32) {
 /// normalized gradient, then applies modest *tangential* graph fairing.
 /// Backtracking guards every iteration against inverted/collapsed triangles.
 ///
-/// The existing cage is deliberately low-density and some legacy pelvic
-/// loops do not follow ideal anatomical correspondence. Consequently this
-/// milestone is a diagnostic fit, not production-quality retopology.
+/// The neutral template is surface-derived, substantially denser than the
+/// legacy cage and cached between recipes. Grid-aligned surface nets do not
+/// automatically yield joint-optimized skeletal loops: fitting is still a
+/// diagnostic preview, not production-quality retopology.
 pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
     if !strength.is_finite() || !(0.0..=1.0).contains(&strength) {
         return Err("Cage fitting strength must be between 0 and 1".into());
     }
-    let source = generate(recipe)?;
+    // Never use the old 656-quad generator here. The cached neutral quad
+    // template has its own topology and is reused for every slider value.
+    let source = neutral_template()?.clone();
     let target = AnatomyTarget::from_recipe(recipe)?;
     let adjacent = neighbours(&source)?;
+    let scale = recipe.height / 1.75;
     let reference: Vec<Vec3> = source.vertices.iter()
-        .map(|&xyz| Vec3::from_array(xyz)).collect();
+        .map(|&xyz| Vec3::from_array(xyz) * scale).collect();
     if reference.len() != source.normals.len() || reference.is_empty() {
         return Err("Cage vertex normals do not match the geometry".into());
     }
-    let scale = recipe.height / 1.75;
     let bind_limit = MAX_BIND_OFFSET * scale * strength;
     let (initial_mean_error,_) = errors(&reference, &target);
     let mut positions = reference.clone();
