@@ -17,6 +17,24 @@ const MAX_BIND_OFFSET: f32 = 0.22;
 const RELAX_RATE: f32 = 0.10;
 const MIN_AREA_SQUARED: f32 = 1.0e-14;
 const MIN_FACE_ALIGNMENT: f32 = 0.035;
+const MIN_EDGE_RATIO: f32 = 0.38;
+const MAX_EDGE_RATIO: f32 = 2.65;
+
+/// Protect the few non-anatomical features in the seed quad cage from
+/// crossing the surface as fitting proceeds. The pelvis's crotch bridge
+/// and axillary junction are the most fold-prone areas of this template.
+fn fit_mobility(point: Vec3, scale: f32) -> f32 {
+    let p = point / scale;
+    let crotch = ((p.y - 0.65).abs() / 0.17).clamp(0.0, 1.0);
+    let midline = (p.x.abs() / 0.12).clamp(0.0, 1.0);
+    let groin_protection = (1.0 - crotch) * (1.0 - midline);
+    let axilla_height = (1.0 - ((p.y - 1.33).abs() / 0.18)).clamp(0.0, 1.0);
+    let axilla_lateral = (1.0 - ((p.x.abs() - 0.22).abs() / 0.12)).clamp(0.0, 1.0);
+    let axilla_protection = axilla_height * axilla_lateral;
+    (1.0 - 0.62 * groin_protection)
+        .min(1.0 - 0.42 * axilla_protection)
+        .clamp(0.25, 1.0)
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct FitReport {
@@ -61,6 +79,7 @@ fn safe_geometry(
     positions: &[Vec3],
     reference: &[Vec3],
     triangles: &[[u32; 3]],
+    quads: &[[u32; 4]],
     scale: f32,
 ) -> bool {
     let minimum = MIN_AREA_SQUARED * scale.powi(4);
@@ -77,6 +96,21 @@ fn safe_geometry(
             < MIN_FACE_ALIGNMENT * current.length() * original.length()
         {
             return false;
+        }
+    }
+    // Projected vertices may keep faces outward-facing while stretching a
+    // quad edge into a poor skinning element. Keep edge lengths within a
+    // conservative envelope relative to the stable cage template.
+    for &[a, b, c, d] in quads {
+        for (u, v) in [(a, b), (b, c), (c, d), (d, a)] {
+            let before = reference[u as usize].distance(reference[v as usize]);
+            let after = positions[u as usize].distance(positions[v as usize]);
+            if before <= 1.0e-7 * scale ||
+                after < before * MIN_EDGE_RATIO ||
+                after > before * MAX_EDGE_RATIO
+            {
+                return false;
+            }
         }
     }
     true
@@ -157,8 +191,9 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
                 let difference = average - point;
                 difference - n * difference.dot(n)
             };
+            let mobility = fit_mobility(point, scale);
             let change = (projection + tangent * RELAX_RATE)
-                .clamp_length_max(PROJECTION_STEP * scale);
+                .clamp_length_max(PROJECTION_STEP * scale) * mobility;
             let proposed = point + change;
             let offset = (proposed - reference[i]).clamp_length_max(bind_limit);
             desired[i] = reference[i] + offset;
@@ -170,7 +205,9 @@ pub fn fit(recipe: &Recipe, strength: f32) -> Result<FittedCage, String> {
         for factor in [1.0_f32, 0.5, 0.25, 0.125, 0.0625, 0.03125] {
             let candidate: Vec<Vec3> = before.iter().zip(&desired)
                 .map(|(&old,&new)| old.lerp(new, factor)).collect();
-            if safe_geometry(&candidate, &reference, &source.triangles, scale) {
+            if safe_geometry(
+                &candidate, &reference, &source.triangles, &source.quads, scale
+            ) {
                 positions = candidate;
                 accepted = true;
                 break;
