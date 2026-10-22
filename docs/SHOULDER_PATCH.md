@@ -1,63 +1,77 @@
-# Shoulder connectivity refinement
+# Anatomy-guided shoulder quad patch
 
 ## Status
 
-First neutral-only topology improvement, not a complete final shoulder patch.
+The neutral cage now has a **structured annular shoulder patch** on both sides.
+This replaces a connected band of surface-net quads with two new circumferential
+support rings. It is a focused shoulder improvement, **not** complete
+production-ready deltoid/chest/axilla retopology.
 
-## Purpose
+## Pipeline
 
-The baseline surface-net mesh contains clusters of extraordinary-valence
-poles around the shoulder and axilla. Earlier limb-direction smoothing
-changed only vertex positions, not quad connectivity, so it could not
-move those poles.
+1. Build the neutral anatomical signed field and surface-net quad cage.
+2. Apply the existing small, field-constrained two-quad shoulder rewires.
+3. Find a connected cylindrical shoulder band using the shoulder, elbow and
+   estimated armpit landmarks. A candidate is eligible only when its removed
+   faces have exactly **two simple, closed, oriented boundary loops**.
+4. Classify the proximal loop as the **torso-side interface** and the distal
+   loop as the **upper-arm interface**. Preserve all original seam vertices.
+5. Build projected circumferential **deltoid** and **axillary support rings**.
+   Zip the rings together with quads. When loop counts differ, place necessary
+   count-transition poles preferentially away from the deep armpit.
+6. Remove obsolete surface-net faces and orphaned interior vertices, rebuild
+   render triangles and verify a closed, consistently oriented all-quad mesh.
+7. Validate the **left shoulder first**, then apply the reflected anatomical
+   construction to the **right shoulder**. Neither side is committed if the
+   other side fails verification.
+8. Run the neutral vertex-flow pass and cache the result. Morphology fitting,
+   rig previews and pose sliders keep exactly those cached face indices.
 
-## Method
+There is no silent fallback to the automatic shoulder band if the boundaries
+cannot be extracted or a candidate fails safety checks. The editor reports the
+generation error. Geometry validation includes duplicate/repeated face-index
+checks, minimum triangle area, quad aspect ratio, outward field normal
+alignment, field proximity and oriented manifold edges.
 
-1. Use the neutral anatomy's shoulder and elbow landmarks to construct
-   mirrored left and right shoulder regions, and approximate the axillary
-   high-strain area.
-2. Build a closed-manifold quad edge incidence map.
-3. Inspect each local pair of quads sharing an edge. Their oriented
-   six-vertex boundary admits two alternative quad-pair reconnections.
-4. Score each candidate for reduction of exceptional pole valence
-   near the axilla, alignment of the replacement edge along or around
-   the upper arm, and edge-length quality.
-5. Reject duplicate connections, nonmanifold region candidates,
-   degenerate or inward-facing triangles, excessive edge distortion,
-   and patches far from the signed anatomical field.
-6. Commit only safe beneficial rewires; rebuild affected render triangles.
-   Keep every surrounding boundary and vertex index unchanged.
-7. Validate the resulting closed oriented quad surface, then run the
-   neutral vertex-flow optimization and cache the template.
+## Diagnostics
 
-The editor reports exact numbers of rewires per shoulder and the
-weighted shoulder hotspot pole cost before and after. The old vertex and
-quad counts are deliberately unchanged, although adjacency is different.
-Player build sliders and temporary rig poses never regenerate topology.
+The Fitted cage view reports removed/generated quad counts and torso/arm ring
+sizes for each shoulder, in addition to the earlier two-quad rewire totals
+and the final axillary pole cost. Rigging view continues to show deformation
+defects, extraordinary poles and the unchanged fitted cage.
 
-## Validation
+## Validation still required
 
-The code contains one small direct test that both alternatives of a
-six-sided two-quad patch keep the same boundary and outward winding.
-A separate geometric check using a planar regular hexagon confirmed
-that both alternative subdivisions preserve the boundary and triangle
-orientation. This check is not a native Rust build.
+This change has a quad-zipper seam test and a neutral-template test checking
+that both patches exist and that the output is quad-only. The exact shoulder
+deformation impact requires a native build and manual visual testing:
 
-Local build and visual validation remain necessary:
+```sh
+cargo fmt --all --check
+cargo check --workspace
+cargo test -p studio-core
+cargo run -p modeldesigner --release
+```
 
-    git pull --ff-only origin main
-    cargo fmt --all
-    cargo check --workspace
-    cargo run -p modeldesigner --release
+Check in Fitted cage mode that the rings wrap the shoulder/upper arm and that
+the chest and back interfaces remain smooth. In Rigging mode compare:
 
-In Fitted cage mode, inspect wireframe and pole overlays, then in Rigging
-mode inspect 30° and 60° one-sided shoulder poses and red defect markers.
-GitHub CI was not run.
+- Neutral and asymmetric arms
+- Left raised outwards by 30° and 60°
+- Left raised forwards by 30° and 60°
+- The mirrored right-side poses
+- Wireframe + poles + defects, especially underarm collapse, red defects,
+  upper-arm root volume and chest displacement
+
+This execution environment has no local Rust compiler or GUI, so these native
+build and pose checks have **not** been run. The GitHub Actions workflow
+remains manual-only, and **GitHub CI was not triggered**.
 
 ## Limitations
 
-This is topology surgery, but not yet global field-aligned quadrangulation.
-It does not guarantee concentric deltoid rings, complete pole relocation,
-animation-ready shoulder deformation or validated skinning. The next
-topology stage should only replace a larger shoulder disk after stable,
-compatible arm-side/torso-side boundary loops are extracted and verified.
+The proximal boundary is the first safe closed arm/torso annulus, not a
+hand-authored network extending into the sternum and scapula. These support
+rings provide more intentional local circulation but cannot guarantee that
+all axillary poles disappear, that 30°–60° motion improves, or that linear
+blend skinning preserves volume. Finish visual assessment before expanding
+this approach to a larger shoulder disk or the hip/groin.

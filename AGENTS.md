@@ -30,3 +30,17 @@
   shoulder loops or animation-validated skinning. If patch rewires are
   blocked, surface the accepted count rather than substituting unsafe
   topology or removing checks.
+- `shoulder_rings.rs` is a second neutral-only patch stage after the local
+  shoulder rewires and before `quad_flow`. It removes a closed annular shoulder
+  band, preserves the original torso and arm boundary vertices, inserts two
+  circumferential support rings, and compacts unused surface-net vertices.
+- Try the left anatomical patch first, validate the closed oriented mesh,
+  then construct the mirrored right side. If either side has no unambiguous
+  safe annulus, return a visible generation error; do not quietly retain the
+  unpatched automatic band.
+- Validate indexed quad winding, manifold triangle edges, nonzero triangle
+  area, anatomical surface proximity, outward normals and duplicate faces.
+  Put count-transition poles as far from the axillary hotspot as possible.
+- Neither local rewires nor the structured annulus imply complete production
+  chest-to-deltoid flow, approved weights, or measured deformation improvement.
+  Validate moderate one-sided and asymmetric shoulder poses in Rigging view.
