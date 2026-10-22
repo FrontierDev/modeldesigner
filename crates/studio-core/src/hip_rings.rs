@@ -41,14 +41,16 @@ fn smooth(a: f32, b: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Fade the trochanter and lateral gluteal surface into the pelvis. The
-/// medial groin stays pelvis-owned until reaching the structured thigh band.
+/// Include the inner thigh in hip ownership before the support ring.
+/// The narrow, lateral-only fade left the inner surface pelvis-bound while
+/// the outer thigh abducted, inflating the apparent thigh circumference.
+/// Retain a gradual fade at the high pelvic root and outside the leg radius.
 fn proximal_ownership(p: Vec3, guide: Guide, left: bool) -> f32 {
     let outward = if left { -1.0 } else { 1.0 };
-    let lateral = outward * (p.x - guide.shoulder.x) / guide.scale;
     let radial = guide.radius(p) / guide.scale;
     let axial = guide.t(p);
-    smooth(-0.085, 0.025, lateral)
+    let lateral = outward * (p.x - guide.shoulder.x) / guide.scale;
+    smooth(-0.19, 0.015, lateral)
         * (1.0 - smooth(0.15, 0.21, radial))
         * smooth(-0.55, -0.05, axial)
 }
@@ -114,8 +116,16 @@ fn replace_band(
     for ((&p, label), is_distal) in source.vertices.iter()
         .zip(&mut base_hips).zip(distal)
     {
-        label[side] = if is_distal { 1.0 }
-            else { proximal_ownership(p, guide, side == 0) };
+        if is_distal {
+            // A retained distal thigh is unambiguously owned by its hip.
+            // Never let the opposite hip's spatial root fade leak into it.
+            label[side] = 1.0;
+            label[1 - side] = 0.0;
+        } else if label[1 - side] >= 0.999 {
+            label[side] = 0.0;
+        } else {
+            label[side] = proximal_ownership(p, guide, side == 0);
+        }
     }
 
     let retained = SurfaceMesh {

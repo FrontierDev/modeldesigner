@@ -176,11 +176,14 @@ fn weights(
         // The groin also has persistent neutral-topology ownership. Spatial
         // hip proximity previously pulled pelvic and opposite-thigh vertices.
         limb[2..].copy_from_slice(&hip);
-        // Opposing hip influences are allowed to blend, but the central
-        // crotch must retain enough pelvis influence to avoid the two
-        // thighs pulling its vertices directly apart.
+        // Keep the central pubic bridge pelvis-owned while letting the
+        // upper thigh follow its hip on *both* medial and lateral sides.
+        // The former one-sided height cutoff also dampened the inner thigh
+        // all the way down to the knees during abduction.
         let groin = (1.0 - smooth(0.015, 0.085, p.x.abs() / scale))
-            * (1.0 - smooth(0.68, 0.84, p.y / scale));
+            * smooth(0.59, 0.65, p.y / scale)
+            * (1.0 - smooth(0.72, 0.78, p.y / scale))
+            * smooth(-0.03, 0.03, p.z / scale);
         limb[2] *= 1.0 - 0.60 * groin;
         limb[3] *= 1.0 - 0.60 * groin;
 
@@ -538,11 +541,13 @@ mod tests {
         assert_eq!(fitted.hip_guides,
             crate::quad_template::neutral_template().unwrap().hip_guides);
         for (label, pose, max_inverted, max_collapsed, max_strained) in [
-            ("left outward 30", DiagnosticPose { left_leg: JointAngles { outward: 30.0, forward: 0.0 }, ..Default::default() }, 2, 0, 35),
-            ("left outward 45", DiagnosticPose { left_leg: JointAngles { outward: 45.0, forward: 0.0 }, ..Default::default() }, 2, 0, 110),
-            ("left forward 30", DiagnosticPose { left_leg: JointAngles { outward: 0.0, forward: 30.0 }, ..Default::default() }, 4, 0, 50),
-            ("left forward 60", DiagnosticPose { left_leg: JointAngles { outward: 0.0, forward: 60.0 }, ..Default::default() }, 50, 1, 180),
-            ("right outward 30", DiagnosticPose { right_leg: JointAngles { outward: 30.0, forward: 0.0 }, ..Default::default() }, 2, 0, 35),
+            ("left outward 30", DiagnosticPose { left_leg: JointAngles { outward: 30.0, forward: 0.0 }, ..Default::default() }, 1, 0, 5),
+            ("left outward 45", DiagnosticPose { left_leg: JointAngles { outward: 45.0, forward: 0.0 }, ..Default::default() }, 1, 0, 45),
+            ("left outward 55", DiagnosticPose { left_leg: JointAngles { outward: 55.0, forward: 0.0 }, ..Default::default() }, 2, 0, 70),
+            ("left forward 30", DiagnosticPose { left_leg: JointAngles { outward: 0.0, forward: 30.0 }, ..Default::default() }, 3, 0, 40),
+            ("left forward 60", DiagnosticPose { left_leg: JointAngles { outward: 0.0, forward: 60.0 }, ..Default::default() }, 65, 3, 130),
+            ("right outward 30", DiagnosticPose { right_leg: JointAngles { outward: 30.0, forward: 0.0 }, ..Default::default() }, 1, 0, 5),
+            ("right outward 45", DiagnosticPose { right_leg: JointAngles { outward: 45.0, forward: 0.0 }, ..Default::default() }, 1, 0, 45),
         ] {
             let posed = pose_fitted(&fitted, &recipe, pose).unwrap();
             assert_eq!(posed.model.quads, fitted.quads,
@@ -553,6 +558,33 @@ mod tests {
                 "Hip pose {label}: {} inverted, {} collapsed, {} strained",
                 posed.report.inverted_faces, posed.report.collapsed_faces,
                 posed.report.strained_edges);
+            if label == "left outward 45" {
+                // The old medial-thigh weights visibly thickened the upper
+                // leg: its 90th-percentile radial ratio reached 1.49 at 45°.
+                // Undo rigid hip rotation before comparing cross sections,
+                // so the test measures local swelling, not leg displacement.
+                let target = AnatomyTarget::from_recipe(&recipe).unwrap();
+                let guide = crate::shoulder_rings::Guide::hip(&target, true).unwrap();
+                let joints = make_skeleton(&target).unwrap();
+                let matrices = skinning::evaluate_joints(&joints, &local_rotations(pose)).unwrap();
+                let inv = matrices.skin[8].inverse();
+                let mut radial = fitted.vertices.iter().zip(&posed.model.vertices)
+                    .filter_map(|(a, b)| {
+                        let from = Vec3::from_array(*a);
+                        let t = guide.t(from);
+                        let r = guide.radius(from) / target.scale;
+                        if !(0.22..=0.50).contains(&t) || !(0.05..=0.145).contains(&r)
+                            || from.x > -0.025 * target.scale { return None; }
+                        let local = inv.transform_point3(Vec3::from_array(*b));
+                        Some(guide.radius(local) / guide.radius(from))
+                    }).collect::<Vec<_>>();
+                radial.sort_by(|a, b| a.total_cmp(b));
+                assert!(radial.len() >= 80, "Upper-thigh ring samples were lost");
+                assert!(radial[radial.len() * 9 / 10] < 1.22
+                    && radial[radial.len() - 1] < 1.55,
+                    "45° outward hip inflated the thigh: p90 {:.2}, max {:.2}",
+                    radial[radial.len() * 9 / 10], radial[radial.len() - 1]);
+            }
         }
     }
 
@@ -560,27 +592,32 @@ mod tests {
     fn hip_guides_move_thigh_without_dragging_pelvis_or_opposite_thigh() {
         let recipe = Recipe::default();
         let fitted = crate::cage::fit(&recipe, 1.0).unwrap().model;
-        let posed = pose_fitted(&fitted, &recipe, DiagnosticPose {
-            left_leg: JointAngles { outward: 45.0, forward: 0.0 },
-            ..Default::default()
-        }).unwrap();
-        let (mut moved_left, mut fixed_right, mut fixed_pelvis) = (0, 0, 0);
-        for (i, &ownership) in fitted.hip_guides.iter().enumerate() {
-            let distance = Vec3::from_array(fitted.vertices[i])
-                .distance(Vec3::from_array(posed.model.vertices[i]));
-            if ownership[0] == 1.0 {
-                if distance > 0.05 { moved_left += 1; }
-            } else if ownership[1] == 1.0 {
-                assert!(distance < 1.0e-5,
-                    "Unposed right thigh vertex {i} followed the left hip");
-                fixed_right += 1;
-            } else if ownership == [0.0, 0.0] {
-                assert!(distance < 1.0e-5,
-                    "Pelvis vertex {i} followed the left hip");
-                fixed_pelvis += 1;
+        for side in 0..2 {
+            let angle = JointAngles { outward: 45.0, forward: 0.0 };
+            let pose = if side == 0 {
+                DiagnosticPose { left_leg: angle, ..Default::default() }
+            } else {
+                DiagnosticPose { right_leg: angle, ..Default::default() }
+            };
+            let posed = pose_fitted(&fitted, &recipe, pose).unwrap();
+            let (mut moved, mut fixed_opposite, mut fixed_pelvis) = (0, 0, 0);
+            for (i, &ownership) in fitted.hip_guides.iter().enumerate() {
+                let distance = Vec3::from_array(fitted.vertices[i])
+                    .distance(Vec3::from_array(posed.model.vertices[i]));
+                if ownership[side] == 1.0 {
+                    if distance > 0.05 { moved += 1; }
+                } else if ownership[1 - side] == 1.0 {
+                    assert!(distance < 1.0e-5,
+                        "Unposed opposite thigh vertex {i} followed hip {side}");
+                    fixed_opposite += 1;
+                } else if ownership == [0.0, 0.0] {
+                    assert!(distance < 1.0e-5,
+                        "Pelvis vertex {i} followed hip {side}");
+                    fixed_pelvis += 1;
+                }
             }
+            assert!(moved > 20 && fixed_opposite > 20 && fixed_pelvis > 100);
         }
-        assert!(moved_left > 20 && fixed_right > 20 && fixed_pelvis > 100);
         let mut unlabelled = fitted.clone();
         unlabelled.hip_guides.pop();
         assert!(pose_fitted(&unlabelled, &recipe, DiagnosticPose::default()).is_err());
