@@ -324,12 +324,8 @@ impl AnatomyTarget {
                         for mut tri in candidates {
                             let [a,b,c] = tri.map(|v| Vec3::from_array(surface.vertices[v as usize]));
                             let normal = (b-a).cross(c-a);
-                            // Tiny but nonzero triangles are essential to
-                            // the edge-paired preview. Rejecting merely small
-                            // faces creates cracks at near-grid-corner cuts.
-                            if normal.length_squared() <= 1.0e-20 * self.scale.powi(4) {
-                                continue;
-                            }
+                            // Keep even tiny triangles: every tetrahedral
+                            // face must have its corresponding neighbour.
                             let centre = (a+b+c)/3.0;
                             if normal.dot(self.outward_normal(centre)) < 0.0 {
                                 tri.swap(1,2);
@@ -510,8 +506,12 @@ mod tests {
                 *edges.entry((a.min(b),a.max(b))).or_default() += 1;
             }
         }
+        let bad = edges.iter().filter(|entry| *entry.1 != 2).take(10)
+            .map(|(e,c)| (*e,*c)).collect::<Vec<_>>();
+        let count1 = edges.values().filter(|&&count| count == 1).count();
+        let count3 = edges.values().filter(|&&count| count > 2).count();
         assert!(edges.values().all(|&count| count==2),
-            "Preview triangles should make one closed, manifold target");
+            "Preview triangles should make one closed, manifold target; single={count1}, multi={count3}, examples={bad:?}");
     }
 
     #[test]
