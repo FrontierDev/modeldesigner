@@ -340,7 +340,9 @@ fn valid_new_quads(
                 || !outward.is_finite() || outward.length_squared() < 0.5
                 || normal.normalize().dot(outward) < 0.045
                 || target.field(centre).abs() > 0.036 * target.scale
-            { return false; }
+            {
+                return false;
+            }
         }
     }
     true
@@ -385,41 +387,51 @@ fn replace_band(
     rotate_to_front(&mut arm, source, guide);
 
     let removed = selected.iter().filter(|&&v| v).count();
-    let mut mesh = SurfaceMesh {
+    let retained = SurfaceMesh {
         vertices: source.vertices.clone(),
         quads: source.quads.iter().enumerate().filter_map(|(i, &quad)|
             (!selected[i]).then_some(quad)).collect(),
         triangles: Vec::new(),
         caps: Vec::new(),
     };
-    for &[a, b, c, d] in &mesh.quads {
-        mesh.triangles.extend([[a, b, c], [a, c, d]]);
-    }
-    let start = mesh.quads.len();
-    let count = m.max(n);
-    // Torso interface -> deltoid cap -> underarm support -> upper-arm loop.
-    // The interior rings are projected onto the same neutral anatomy field.
-    let deltoid = support_ring(&mut mesh, &torso, &arm, count, 0.32, target)?;
-    let axilla = support_ring(&mut mesh, &torso, &arm, count, 0.68, target)?;
-    let hotspot = guide.axilla;
-    bridge(&mut mesh, &torso, &deltoid, hotspot)?;
-    bridge(&mut mesh, &deltoid, &axilla, hotspot)?;
-    bridge(&mut mesh, &axilla, &arm, hotspot)?;
-    if !valid_new_quads(&mesh, start, target) { return None; }
-    let generated = mesh.quads.len() - start;
-
-    compact(&mut mesh);
-    if mesh.validate_closed().is_err() { return None; }
-    let mut seen = BTreeSet::new();
-    for quad in &mesh.quads {
-        if quad.iter().copied().collect::<BTreeSet<_>>().len() != 4 {
-            return None;
+    let start = retained.quads.len();
+    let count = m.min(n);
+    // A 'frontmost' vertex is only an approximate phase reference on a
+    // nonuniform surface-net ring. Try its immediate neighbours as well:
+    // one edge of mismatch can fold the patch even with valid boundary loops.
+    for shift in [0, n - 1, 1, n - 2, 2] {
+        let mut mesh = retained.clone();
+        let mut phased_arm = arm.clone();
+        phased_arm.rotate_left(shift);
+        // Torso interface -> deltoid cap -> underarm support -> upper-arm loop.
+        // The interior rings are projected onto the same neutral anatomy field.
+        let Some(deltoid) = support_ring(&mut mesh, &torso, &phased_arm, count, 0.32, target)
+            else { continue; };
+        let Some(axilla) = support_ring(&mut mesh, &torso, &phased_arm, count, 0.68, target)
+            else { continue; };
+        let hotspot = guide.axilla;
+        if bridge(&mut mesh, &torso, &deltoid, hotspot).is_none()
+            || bridge(&mut mesh, &deltoid, &axilla, hotspot).is_none()
+            || bridge(&mut mesh, &axilla, &phased_arm, hotspot).is_none()
+            || !valid_new_quads(&mesh, start, target)
+        { continue; }
+        let generated = mesh.quads.len() - start;
+        compact(&mut mesh);
+        if mesh.validate_closed().is_err() { continue; }
+        let mut seen = BTreeSet::new();
+        let unique = mesh.quads.iter().all(|quad| {
+            if quad.iter().copied().collect::<BTreeSet<_>>().len() != 4 {
+                return false;
+            }
+            let mut ids = *quad;
+            ids.sort_unstable();
+            seen.insert(ids)
+        });
+        if unique {
+            return Some((mesh, PatchCounts { removed, generated, torso: m, arm: n }));
         }
-        let mut ids = *quad;
-        ids.sort_unstable();
-        if !seen.insert(ids) { return None; }
     }
-    Some((mesh, PatchCounts { removed, generated, torso: m, arm: n }))
+    None
 }
 
 fn one_side(
@@ -427,17 +439,19 @@ fn one_side(
 ) -> Result<PatchCounts, String> {
     let guide = Guide::new(target, left)?;
     let (adjacent, uses) = adjacency(mesh)?;
+    let mut bands = 0;
+    let mut two_boundaries = 0;
     // Search proximal/distal cuts from anatomical landmarks. A candidate is
     // eligible only if it yields exactly two closed, simple boundary loops.
-    for start in [-0.095, -0.055, -0.015, 0.035, 0.075, 0.115, 0.155, 0.195] {
-        for end in [0.43, 0.50, 0.57] {
+    for start in [0.155, 0.115, 0.195, 0.075, 0.035, -0.015, -0.055, -0.095] {
+        for end in [0.57, 0.50, 0.43] {
             for radius in [0.17, 0.195, 0.225] {
                 let Some(selected) = band_faces(
                     mesh, guide, &adjacent, start, end, radius
                 ) else { continue; };
-                let Some(loops) = boundary_loops(&selected, &uses) else {
-                    continue;
-                };
+                bands += 1;
+                let Some(loops) = boundary_loops(&selected, &uses) else { continue; };
+                if loops.len() == 2 { two_boundaries += 1; }
                 if let Some((candidate, counts)) =
                     replace_band(mesh, &selected, loops, guide, target)
                 {
@@ -448,8 +462,9 @@ fn one_side(
         }
     }
     Err(format!(
-        "No safe {} shoulder torso/arm boundary pair for the structured quad patch",
-        if left { "left" } else { "right" }
+        "No safe {} shoulder torso/arm boundary pair for the structured quad patch \
+         ({bands} regions, {two_boundaries} two-loop boundaries)",
+        if left { "left" } else { "right" },
     ))
 }
 
