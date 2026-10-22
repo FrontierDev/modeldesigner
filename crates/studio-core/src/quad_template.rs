@@ -13,7 +13,8 @@ use crate::anatomy::AnatomyTarget;
 use crate::mesh::{MeshBuilder, SurfaceMesh};
 use crate::quad_flow::{optimize, FlowReport};
 use crate::shoulder_patch::{
-    apply as refine_shoulders, measured_hotspot_cost, ShoulderPatchReport
+    apply as refine_shoulders, measured_hotspot_cost, refine_deformation,
+    ShoulderPatchReport
 };
 use crate::shoulder_rings::{apply as build_shoulder_rings, RingPatchReport};
 use crate::{Model, Recipe};
@@ -227,6 +228,11 @@ fn make_template() -> Result<NeutralTemplate, String> {
     // Replace an annular shoulder band with anatomical support loops before
     // vertex flow and well before any runtime morphology or rigging.
     let (ring_report, shoulder_guides) = build_shoulder_rings(&mut mesh, &neutral)?;
+    let deformation_rewires = refine_deformation(
+        &mut mesh, &neutral, &shoulder_guides
+    )?;
+    shoulder_report.left_deformation_rewires = deformation_rewires[0];
+    shoulder_report.right_deformation_rewires = deformation_rewires[1];
     shoulder_report.hotspot_cost_after = measured_hotspot_cost(&mesh, &neutral)?;
     // After rewiring, redistribute neutral vertex positions without further
     // topology changes. Everything is cached for the archetype.

@@ -8,7 +8,7 @@
 
 use crate::anatomy::AnatomyTarget;
 use crate::mesh::SurfaceMesh;
-use glam::Vec3;
+use glam::{Quat, Vec3};
 use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_CHANGES_PER_SHOULDER: usize = 72;
@@ -23,9 +23,149 @@ pub struct ShoulderPatchReport {
     /// Number of genuinely replaced shared edges (quad connectivity changes).
     pub left_rewires: usize,
     pub right_rewires: usize,
+    /// Neutral re-quadrangulations selected for posed armpit stability.
+    pub left_deformation_rewires: usize,
+    pub right_deformation_rewires: usize,
     /// Weighted extraordinary-valence cost near each shoulder.
     pub hotspot_cost_before: f32,
     pub hotspot_cost_after: f32,
+}
+
+/// The skin field is already fixed by the structured shoulder patch. Test
+/// two-quad alternatives against that field under a raised arm, without
+/// changing any bone weights or moving vertices during runtime posing.
+fn posed_pair_cost(
+    vertices: &[Vec3], pair: &[[u32; 4]; 2],
+    ownership: &[[f32; 2]], guide: &Guide, side: usize,
+) -> f32 {
+    let mut cost = 0.0;
+    for (angle, factor) in [(30.0_f32, 0.35), (60.0, 1.0), (90.0, 0.7)] {
+        let sign = if side == 0 { -1.0 } else { 1.0 };
+        let rotation = Quat::from_rotation_z(sign * angle.to_radians());
+        for &quad in pair {
+            let rest = quad.map(|id| vertices[id as usize]);
+            let posed = quad.map(|id| {
+                let p = vertices[id as usize];
+                let w = ownership[id as usize][side].min(0.98);
+                p + (rotation * (p - guide.shoulder) - (p - guide.shoulder)) * w
+            });
+            for i in 0..4 {
+                let before = rest[i].distance(rest[(i + 1) % 4]);
+                let after = posed[i].distance(posed[(i + 1) % 4]);
+                if before <= 1.0e-8 || after <= 1.0e-8 { return f32::INFINITY; }
+                let change = (after / before).ln();
+                cost += factor * change * change;
+                if after > before * 1.8 || after < before * 0.55 {
+                    cost += factor * 6.0;
+                }
+            }
+            for indices in [[0, 1, 2], [0, 2, 3]] {
+                let [a, b, c] = indices;
+                let neutral = (rest[b] - rest[a]).cross(rest[c] - rest[a]);
+                let rotated = (posed[b] - posed[a]).cross(posed[c] - posed[a]);
+                let w = (ownership[quad[a] as usize][side]
+                    + ownership[quad[b] as usize][side]
+                    + ownership[quad[c] as usize][side]) / 3.0;
+                let expected = neutral.lerp(rotation * neutral, w);
+                let dot = rotated.normalize_or_zero().dot(expected.normalize_or_zero());
+                if dot <= 0.0 { cost += factor * 30.0; }
+                else if dot < 0.25 { cost += factor * (0.25 - dot) * 8.0; }
+            }
+        }
+    }
+    cost
+}
+
+/// Improve neutral torso-side shoulder connectivity after the structured
+/// annulus has established skin ownership. Each edit only exchanges the
+/// diagonal between two quads; their six-edge boundary stays untouched.
+pub(crate) fn refine_deformation(
+    mesh: &mut SurfaceMesh, target: &AnatomyTarget,
+    ownership: &[[f32; 2]],
+) -> Result<[usize; 2], String> {
+    if ownership.len() != mesh.vertices.len() {
+        return Err("Cannot refine shoulder deformation with misaligned ownership".into());
+    }
+    let guides = [
+        Guide::from_landmarks(target, true)?,
+        Guide::from_landmarks(target, false)?,
+    ];
+    let mut accepted = [0_usize; 2];
+    for (side, guide) in guides.iter().enumerate() {
+        for _ in 0..24 {
+            let incidence = directed_edges(mesh);
+            if incidence.values().any(|faces| faces.len() != 2) {
+                return Err("Deformation rewire requires a closed quad manifold".into());
+            }
+            let mut valence = vec![0_usize; mesh.vertices.len()];
+            for &(u,v) in incidence.keys() {
+                valence[u as usize] += 1;
+                valence[v as usize] += 1;
+            }
+            let mut best: Option<(f32, usize, usize, [[u32;4];2])> = None;
+            for (&shared, faces) in &incidence {
+                let midpoint = (mesh.vertices[shared.0 as usize]
+                    + mesh.vertices[shared.1 as usize]) * 0.5;
+                if !guide.in_region(midpoint, target.scale)
+                    || midpoint.distance(guide.axilla) > 0.175 * target.scale
+                { continue; }
+                let (fa, fb) = (faces[0], faces[1]);
+                let Some([u,v,a,b]) = rotate(mesh.quads[fa], shared.0, shared.1)
+                    .or_else(|| rotate(mesh.quads[fa], shared.1, shared.0))
+                    else { continue; };
+                let Some([_,_,c,d]) = rotate(mesh.quads[fb], v, u) else { continue; };
+                if [u,v,a,b,c,d].into_iter().collect::<BTreeSet<_>>().len() != 6 {
+                    continue;
+                }
+                let local_weights = [u,v,a,b,c,d].map(|id| ownership[id as usize][side]);
+                // Retain the deliberately constructed arm support rings;
+                // only reroute the mixed torso/armpit skinning transition.
+                if local_weights.iter().any(|&w| w >= 0.90)
+                    || !local_weights.iter().any(|&w| (0.05..0.90).contains(&w))
+                { continue; }
+                let rest_pair = [mesh.quads[fa], mesh.quads[fb]];
+                let before = posed_pair_cost(
+                    &mesh.vertices, &rest_pair, ownership, guide, side
+                );
+                let perimeter = [u,c,d,v,a,b];
+                let mut lengths = (0..6).map(|i| mesh.vertices[perimeter[i] as usize]
+                    .distance(mesh.vertices[perimeter[(i + 1) % 6] as usize]))
+                    .collect::<Vec<_>>();
+                lengths.sort_by(|a,b| a.total_cmp(b));
+                let median = (lengths[2] + lengths[3]) * 0.5;
+                if median < 1.0e-5 * target.scale { continue; }
+                for (diagonal, candidate) in [
+                    (edge(c,a), [[c,d,v,a],[a,b,u,c]]),
+                    (edge(d,b), [[d,v,a,b],[b,u,c,d]]),
+                ] {
+                    if incidence.contains_key(&diagonal)
+                        || !valid_quads(&mesh.vertices, &candidate, target, median)
+                    { continue; }
+                    let after = posed_pair_cost(
+                        &mesh.vertices, &candidate, ownership, guide, side
+                    );
+                    let deformation_gain = before - after;
+                    if deformation_gain <= 0.75 { continue; }
+                    let pole_gain = score_change(shared, diagonal,
+                        &valence, &mesh.vertices, guide, median, target.scale);
+                    let gain = deformation_gain + 0.15 * pole_gain;
+                    if gain > 0.75 && best.as_ref().is_none_or(|item| gain > item.0) {
+                        best = Some((gain, fa, fb, candidate));
+                    }
+                }
+            }
+            let Some((_, fa, fb, pair)) = best else { break; };
+            for (face, quad) in [(fa,pair[0]), (fb,pair[1])] {
+                mesh.quads[face] = quad;
+                let triangles = quad_triangles(quad);
+                mesh.triangles[2 * face] = triangles[0];
+                mesh.triangles[2 * face + 1] = triangles[1];
+            }
+            accepted[side] += 1;
+        }
+    }
+    mesh.validate_closed()?;
+    Ok(accepted)
 }
 
 #[derive(Clone, Copy)]
